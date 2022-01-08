@@ -1,0 +1,114 @@
+#!/usr/bin/env python
+
+"""
+    create_stimulus_file.py
+
+    Give the HDF5 filename as a command line argument.
+
+    Create a stimulus file for CARP by:
+    1) specifying a location in UACs
+    2) selecting a region of points based on this location
+    3) writing a CARP stimulus file (named by user via input during script, saved in /tmp)
+"""
+
+import sys
+import os
+
+import pyvista as pv
+from pyvistaqt import BackgroundPlotter
+import numpy as np
+from scipy.spatial.distance import cdist
+
+import mmserp.hdf5utils as hu
+from mmserp.turbocmap import cmap
+
+
+def view_mesh(filename):
+
+    # get mesh spatial data
+    X = hu.getDataset(filename, "sim_mesh", "X")
+    Tri = hu.getDataset(filename, "sim_mesh", "Tri")
+
+    # for pyvista, first column must be set to '3' (i.e. triangle element)
+    Tri = np.hstack([ np.full(Tri.shape[0], 3)[:,None] , Tri ])
+    
+    # create mesh object
+    mesh = pv.PolyData(X, Tri)
+
+    # UAC and LGE
+    UAC = hu.getDataset(filename, "sim_mesh", "UAC").astype(np.float32)
+    LGE = hu.getDataset(filename, "sim_mesh", "LGE_norm").astype(np.float32)
+
+    # plot mesh, colored by stuff
+    plotter = BackgroundPlotter(shape = (1,3), auto_update = True)
+
+    # add a mesh, with color
+    for p in range(3):
+        plotter.subplot(0, p)
+
+        if p == 0:
+            title = "UAC_1"
+            scalars = UAC[:,0]
+            plotter.add_mesh(mesh.copy(), scalars = scalars, opacity = 1.0, stitle = title, cmap = cmap) 
+        if p == 1:
+            title = "UAC_2"
+            scalars = UAC[:,1]
+            plotter.add_mesh(mesh.copy(), scalars = scalars, opacity = 1.0, stitle = title, cmap = cmap) 
+        if p == 2:
+            title = "mesh"
+            scalars = None 
+            scalars = np.zeros(X.shape[0])
+            plotter.add_mesh(mesh.copy(), scalars = scalars, opacity = 1.0, cmap = "Reds", show_edges = False) 
+
+    plotter.link_views()
+    plotter.render()
+    plotter.app.processEvents()
+
+    
+    # select mesh points based on UAC
+    # -------------------------------
+    while True:
+        UAC_1 = input("Type in UAC_1: ")
+        UAC_2 = input("Type in UAC_2: ")
+        UAC_input = np.array([[UAC_1, UAC_2]])
+
+        idx = np.argmin(cdist(UAC, UAC_input), axis = 0)
+        print(idx)
+
+        spatial_dists = cdist(X, X[idx])
+        print(spatial_dists)
+        idx = np.nonzero(spatial_dists < 4000)[0]
+        print(idx)
+
+        color = np.zeros(X.shape[0])
+        color[idx] = 1.0
+
+        plotter.update_scalars(scalars = color) 
+
+        inp = input("Save stimulus coordinates into HDF5? yes/[no]: ")
+        print("You entered:", inp)
+
+        if (inp == "YES") or (inp == "yes"):
+
+            pacesite = input("Type stimulus site name (e.g. CS, RPV): ")
+            print("You enetered:", pacesite)
+
+            group = "stimulus"
+            hu.createGroup(filename, group)
+            hu.createDataset(filename, group, pacesite, idx)
+
+            break
+        else:
+            pass
+
+
+    input("[WAIT]: hit <return> to close.")
+
+
+if __name__ == "__main__":
+
+    if len(sys.argv) != 2:
+        print("Error: call as ./{} <filename>".format(os.path.basename(__file__)))
+    else:
+        view_mesh(sys.argv[1])
+

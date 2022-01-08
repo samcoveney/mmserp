@@ -1,0 +1,150 @@
+#!/usr/bin/env python
+
+"""
+    decimate.py
+    
+    Convert the high resolution UAC meshes to a lower resolution mesh.
+
+    The new vertices will be a subset of the higher resolution mesh vertices.
+    The elements will be optimized to be regular via simulated annealing of the vertex positions prior to triangulation.
+    Although not especially fast, this script gives high quality results that do not require manual tweaking afterwards.
+
+    First anneal the positions of the new verties.
+
+    Second connect these new vertices (to help this along frayed edges, a mesh extension is done first).
+
+    Routines are in the qulati package.
+
+"""
+
+import argparse
+import numpy as np
+import os
+
+import pyvista as pv
+import trimesh
+
+from qulati.meshutils import subset_anneal, subset_triangulate, extendMesh
+from qulati.eigensolver import eigensolver
+
+import mmserp.hdf5utils as hu
+from mmserp.turbocmap import cmap
+
+
+def plotMesh(X, Tri, subset = None, show_edges = False):
+    """ Plot the mesh using Pyvista."""
+
+    plotter = pv.Plotter()
+
+    # plot trimesh
+    plt_surf = pv.PolyData(X, np.hstack([ np.full(Tri.shape[0], 3)[:,None] , Tri ]))
+    scalars = X[:,0]
+    clim = [scalars.min(), scalars.max()]
+    plotter.add_mesh(plt_surf, scalars = scalars, clim = clim, show_edges = show_edges, cmap = cmap, opacity = 1.0) # add color to mesh here
+
+    # plot points
+    if subset is None:
+        plt_point = pv.PolyData(X)
+    else:
+        plt_point = pv.PolyData(X[subset])
+    plotter.add_points(plt_point, point_size = 10, render_points_as_spheres = True)
+
+    plotter.show()
+
+
+def main(args):
+
+    # new filename for saving results
+    #head, tail = os.path.split(args.filename)
+    #new_filename = head + "/" + "mesh_" + tail
+
+    # get mesh spatial data
+    X = hu.getDataset(args.filename, "sim_mesh", "X")
+    Tri = hu.getDataset(args.filename, "sim_mesh", "Tri")
+
+    #{{{ get subset of points on the manifold
+    if args.loc:
+
+        cont = True
+        first_run = True
+        while cont:
+
+            if first_run:
+                choice = subset_anneal(X, Tri, num = args.num, runs = args.runs)
+                first_run = False
+            else:
+                choice = subset_anneal(X, Tri, num = args.num, runs = args.runs, choice = choice)
+
+            if args.plot:
+                plotMesh(X, Tri, subset = choice)
+                print("Close plot (or try to close it) to continue")
+
+            inp = input("\nType Y or y to do more annealing: ")
+            if (inp != "Y") and (inp != "y"): cont = False
+
+            # save result in npy array
+            np.save("/tmp/choice.npy", choice)
+
+    #}}}
+
+    #{{{ triangulate this subset of points on the manifold
+    if args.tri:
+
+        choice = np.load("/tmp/choice.npy")
+
+        newX, newTri = subset_triangulate(X, Tri, choice, layers = 5, holes = 5)
+
+        if args.plot: plotMesh(newX, newTri, show_edges = True)
+
+        inp = input("Type Y or y to save results in new hdf5 file: ")
+        if (inp == "Y") or (inp == "y"):
+
+            hu.createGroup(args.filename, "mesh")
+            hu.createDataset(args.filename, "mesh", "X", data = newX.astype(np.float32))
+            hu.createDataset(args.filename, "mesh", "Tri", data = newTri.astype(np.int32))
+            hu.createDataset(args.filename, "mesh", "mapper", data = choice.astype(np.int32))
+
+    #}}}
+
+    #{{{ get the eigenvalues on this new manifold
+    if args.eigs:
+
+        try:
+            newX = hu.getDataset(args.filename, "mesh", "X")
+            newTri = hu.getDataset(args.filename, "mesh", "Tri")
+
+            Q, V, gradV, centroids = eigensolver(newX, newTri, holes = args.holes, num = 2**8, layers = args.layers, calc_gradV = True, use_average_edge = True)
+
+            hu.createDataset(args.filename, "mesh", "Q", Q.astype(np.float32))
+            hu.createDataset(args.filename, "mesh", "V", V.astype(np.float32))
+            hu.createDataset(args.filename, "mesh", "gradV", gradV.astype(np.float32))
+            hu.createDataset(args.filename, "mesh", "centroids", centroids.astype(np.float32))
+
+        except AttributeError as e:
+            print("Need to have triangulation in", args.filename, "first.")
+
+    #}}}
+
+
+    ### end of main() ###
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description = "Decimate a high resolution mesh by creating a new triangulation of a subset of vertices.\
+                                                    The subset is optimized using simulated annealing.")
+ 
+    parser.add_argument("--filename", required = True, help = "Name of hdf5 file containing the high resolution mesh.")
+    parser.add_argument("--loc", action = "store_true", default = False, help = "Optimize locations for new mesh vertices.")
+    parser.add_argument("--num", type = int, default = 10000, help = "Number of new mesh vertices.")
+    parser.add_argument("--runs", type = int, default = 10000, help = "Number of annealing moves.")
+    parser.add_argument("--plot", action = "store_true", default = False, help = "Plot the results.")
+    parser.add_argument("--tri", action = "store_true", default = False, help = "Triangulate the subset.")
+    parser.add_argument("--holes", default = 5, type = int, help = "Number of topological holes in the manifold.")
+    parser.add_argument("--layers", default = 5, type = int, help = "Number of layers of elements during mesh extension.")
+    parser.add_argument("--eigs", action = "store_true", default = False, help = "Solve eigenproblem for new triangulation.")
+
+    args = parser.parse_args()
+
+    main(args)
+
+

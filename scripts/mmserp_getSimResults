@@ -1,0 +1,183 @@
+#!/usr/bin/env python
+
+"""
+    get_sim_results.py
+
+    Transfer simulation LAT, APD, and |CV| to hdf5 files at interpolation vertex resolution.
+    Run from a folder containing act_{pacesite}/act_${S1}/{trep and tact}, and supply the hdf5 filename, pacesite, and number of beats.
+
+    Use the --val argument to append '_val' to the hdf5 groups, in order to distinguish results for 'predicted param sims' from 'true (original) param sims'
+
+"""
+
+import argparse
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import trimesh
+
+import mmserp.hdf5utils as hu
+from mmserp.plots import plot_fields
+from qulati import gradient
+
+
+def main(args):
+
+    # get mesh information
+    sim_X = hu.getDataset(args.filename, "sim_mesh", "X")
+    sim_Tri = hu.getDataset(args.filename, "sim_mesh", "Tri")
+    sim_centroids = sim_X[sim_Tri].mean(axis = 1)
+    mapper = hu.getDataset(args.filename, "mesh", "mapper")
+
+    # only loading this temporarily, for plotting
+    if args.plot:
+        X = hu.getDataset(args.filename, "mesh", "X")
+        Tri = hu.getDataset(args.filename, "mesh", "Tri")
+
+    # other settings
+    space_scale = 1e-3
+
+    # group name
+    group = "sim_results/" + args.params + "/" + args.pacesite + "/" + args.S1
+
+    # save results to HDF5 files - create group
+    hu.createGroup(args.filename, group)
+
+    #for lat in ["act", "rep", "rep20", "rep30", "rep50"]:
+    for lat in ["act", "rep", "rep20", "rep50"]:
+
+        print("  LAT type:", lat)
+
+        if lat == "act":   datafile = "tact_0.7-thresh.dat"
+        if lat == "rep":   datafile = "trep_0.1-thresh.dat"
+        if lat == "rep20": datafile = "trep_0.8-thresh.dat"
+        if lat == "rep30": datafile = "trep_0.7-thresh.dat"
+        if lat == "rep50": datafile = "trep_0.5-thresh.dat"
+
+        print("  Getting final activation")
+
+        #data = np.loadtxt("act_" + args.pacesite + "/act_" + args.S1 + "/" + datafile)
+        data = np.loadtxt(datafile)
+        df = pd.DataFrame(data, columns = ["vertex", "lat"])
+        df.sort_values(["vertex", "lat"], inplace = True)
+
+        NUM = df.vertex.value_counts() # check that we have enough activations
+
+        NUM_BEATS = args.beats
+
+        if (NUM < NUM_BEATS).any():
+            print("[WARNING]: some activations did not happen! There should be {:d} activations per vertex.".format(NUM_BEATS))
+            print(df)
+
+        if True: # just get last activation
+            df.drop_duplicates(subset = "vertex", keep = "last", inplace = True)
+        else: # attempt to investigate beat to beat differences - quite slow
+            #{{{ estimate of S1_local that used last and second to last activations
+                LAT_second_to_last = (df.groupby('vertex', as_index=False).apply(lambda x: x if len(x)==1 else x.iloc[[-2]]).reset_index(level=0, drop=True))["lat"]
+
+                df.drop_duplicates(subset = "vertex", keep = "last", inplace = True)
+
+                diff = df.lat.values - LAT_second_to_last
+
+                hp.plot_scalars_on_mesh(sim_X, sim_Tri, scalars = diff)
+
+            #}}}
+
+        LAT_full = df.lat.values - (NUM_BEATS - 1)*int(args.S1)
+
+        # get LAT at interpolation vertices
+        LAT = LAT_full[mapper]
+       
+        print("  Saving results to HFD5")
+
+        if lat == "act":
+            LAT_depolar = LAT.copy()
+
+            hu.createDataset(args.filename, group, "LAT", LAT_depolar.astype(np.float32)) # save LAT in the HDF5 file
+
+            if args.plot:
+                hp.plot_scalars_on_mesh(X, Tri, scalars = LAT, reverse = True)
+
+            # calculate CV magnitude at simulation centroids
+            if False:
+                print("  Calculating CV")
+                vectors = gradient(sim_X*space_scale, sim_Tri, scalar = LAT_full)
+                mag = np.linalg.norm(vectors, axis = 1)
+                CVmag = 1.0/mag 
+                CVvectors = vectors / mag[:,None]**2
+
+                # for simulations vertices belonging to mapper (matching interpolation vertices), get CV at face neighbours and average them
+                # NOTE: this is not perfect, it blurs CV, which will be further blurred later when calculating CV at interpolation mesh centroids
+                mesh = trimesh.Trimesh(sim_X, sim_Tri, process = False)
+                vertex_faces = mesh.vertex_faces.copy() # vertex_faces - gives the face indices to each vertex
+
+                # average of magnitudes
+                if True:
+                    res = CVmag[vertex_faces]
+                    res[vertex_faces == -1] = np.nan
+                    res = np.nanmean(res, axis = 1)[mapper]
+                    #res_1 = res.copy()
+                    if args.plot: hp.plot_scalars_on_mesh(X, Tri, scalars = res, clim = [0.3, 1.3], reverse = False)
+
+                # average of vectors, then take magnitude...
+                # NOTE: I don't think this is right, we don't want the mean of the resultant vector, we want the mean magnitudes
+                else:
+                    # perhaps does not work because of mesh curvature???
+                    xres = CVvectors[:,0][vertex_faces[mapper]]
+                    xres[vertex_faces[mapper] == -1] = np.nan
+                    xres = np.nanmean(xres, axis = 1)
+
+                    yres = CVvectors[:,1][vertex_faces[mapper]]
+                    yres[vertex_faces[mapper] == -1] = np.nan
+                    yres = np.nanmean(yres, axis = 1)
+
+                    zres = CVvectors[:,2][vertex_faces[mapper]]
+                    zres[vertex_faces[mapper] == -1] = np.nan
+                    zres = np.nanmean(zres, axis = 1)
+
+                    res = np.linalg.norm(np.hstack([xres[:,None], yres[:,None], zres[:,None]]), axis = 1)
+                    if args.plot: hp.plot_scalars_on_mesh(X, Tri, scalars = res, clim = [0.3, 1.3], reverse = False)
+
+                # difference
+                #if args.plot: hp.plot_scalars_on_mesh(X, Tri, scalars = res_1 - res, clim = [-0.05, +0.05], reverse = False)
+                #if args.plot: hp.plot_scalars_on_mesh(X, Tri, scalars = res_1 - res, clim = [-0.01, +0.01], reverse = False)
+
+                hu.createDataset(args.filename, group, "CV", res.astype(np.float32)) # save |CV| in the HDF5 file
+
+                if args.plot:
+                    CV = vectors/mag[:,None]**2
+                    print("  Simulation CV as vectors at simulation resolution")
+                    hp.plot_vectors_on_mesh(sim_X, sim_Tri, sim_centroids, vectors = CV, factor = 2000, clim = [0.0, 2.5], reverse = False)
+                    print("  Simulation CV magnitude at vertices at interpolation resolution")
+                    hp.plot_scalars_on_mesh(X, Tri, scalars = res, clim = [0.0, 2.5], reverse = False)
+
+        else:
+            APD = LAT - LAT_depolar
+
+            if lat == "rep":   APDname = "APD"   # APD90
+            if lat == "rep20": APDname = "APD20"
+            if lat == "rep30": APDname = "APD30"
+            if lat == "rep50": APDname = "APD50"
+
+            # save results to HDF5 files
+            hu.createDataset(args.filename, group, APDname, APD.astype(np.float32)) # save APD in the HDF5 file
+
+            if args.plot:
+                plot_fields(X, Tri, fields = [APD], titles = [APDname])
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description = "Get LAT on interpolation mesh and save in hdf5.")
+
+    parser.add_argument("--filename", required = True, help = "Name of hdf5 file containing the high resolution mesh.")
+    parser.add_argument("--S1", required = True, help = "S1 value to use for getting and saving LAT.")
+    parser.add_argument("--pacesite", required = True, help = "Pacesite name (defined directory of data, and saving directory).")
+    parser.add_argument("--beats", required = True, type = int, help = "Number of beats/stimulus that were applied.")
+    parser.add_argument("--plot", action = "store_true", default = False, help = "Plots of all relevant quantities.")
+    parser.add_argument("--params", required = True, help = "Name of group in hdf5 containing the parameters used in simulation.")
+
+    args = parser.parse_args()
+
+    main(args)
+
+

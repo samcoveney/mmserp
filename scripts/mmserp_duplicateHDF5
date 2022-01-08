@@ -1,0 +1,64 @@
+#!/usr/bin/env python
+
+""" duplicate.py
+
+    Copy the core data from one hdf5 file into a new one.
+
+    In other words, copy "mesh" and "sim_mesh" groups across.
+
+"""
+
+
+import os
+import argparse
+from datetime import datetime
+
+import mmserp.hdf5utils as hu
+
+
+def main(args):
+    
+    # name the files
+    filename = args.filename
+
+    head, tail = os.path.split(filename)
+    print("head, tail:", head, tail)
+
+    if head != "": head = head + "/"
+    newfile  = head + datetime.strftime(datetime.today(), '%a%d%b') + "_" + tail 
+
+    print("Copying core data from {:s} to {:s}".format(filename,newfile))
+    input("waiting")
+
+    # create new file
+    hu.createHDF5(newfile)
+    
+    # copy mesh data
+    group = "mesh"
+    hu.createGroup(newfile, group)
+
+    for dname in ["X", "Tri", "Q", "V", "gradV", "centroids", "mapper"]:
+        data = hu.getDataset(filename, group, dname)
+        hu.createDataset(newfile, group, dname, data)
+
+    # copy mesh data
+    group = "sim_mesh"
+    hu.createGroup(newfile, group)
+
+    for dname in ["X", "Tri", "UAC"]:
+        data = hu.getDataset(filename, group, dname)
+        hu.createDataset(newfile, group, dname, data)
+    
+
+
+
+if __name__ == "__main__":
+
+    parser = argparse.ArgumentParser(description = "Make a virtual patient from a simulation, ready for applying interpolation.")
+
+    parser.add_argument("--filename", required = True, help = "Name of hdf5 file.")
+
+    args = parser.parse_args()
+
+    main(args)
+

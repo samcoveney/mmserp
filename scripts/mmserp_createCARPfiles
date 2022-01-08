@@ -1,0 +1,401 @@
+#!/usr/bin/env python
+
+"""
+    create_carp_files.py
+    - Original Author: Cesare Corrado
+    - Current Author: Sam Coveney
+
+    Generate CARP files from X, Tri, and nodes * 5 MMS params list.
+
+    Run with:
+        python create_carp_files.py --filename example.hdf5
+
+    Note that this script relies on the file "/tmp/sim_mms_params.npy", which specifies parameters on nodes at the simulation mesh resolution.
+    This file should be created prior to running this script.
+
+"""
+
+import os
+import sys
+import shutil
+import pkg_resources
+import numpy as np
+import datetime as datetime
+import math
+import argparse
+import pyvista as pv
+
+import h5py
+
+from mmserp.turbocmap import cmap
+import mmserp.hdf5utils as hu
+
+CARP_SCRIPT_PATH = pkg_resources.resource_filename('mmserp', 'data/runCARP.sh')
+
+def Tri_convert(Tri):
+    """Creates a Tri representation suitable for pyvista."""
+    return np.hstack([ np.full(Tri.shape[0], 3)[:,None] , Tri ])
+
+
+def transfer(X, Tri, params, newX, newTri):
+    """Transfer parameters from one mesh to the next"""
+
+    # create pyvista mesh
+    mesh = pv.PolyData(X, Tri_convert(Tri))
+    newMesh = pv.PolyData(newX, Tri_convert(newTri))
+
+    param_names = ["D", "t_in", "t_out", "t_open", "t_close"]
+
+    dim = params.shape[1]
+
+    for pp, p in enumerate(params.T):
+
+        mesh.point_arrays[param_names[pp]] = p
+
+    # transfer the values across to the new array
+    newMesh = newMesh.interpolate(mesh, radius = 5e3)
+    print("newMesh:", newMesh)
+
+    # create a plotter
+    plotter = pv.Plotter(shape = (2,dim))
+    print("Note: the constant fields are reset to constant values after this, do not worry about the noise.")
+
+    # add a mesh, with color
+    for m in range(2):
+        for pp, p in enumerate(param_names):
+            plotter.subplot(m, pp)
+            #surf = pv.PolyData(X, Tri)
+
+            show_edges = False
+
+            if m == 0:
+                stitle = p + " old"
+                plotter.add_mesh(mesh.copy(), scalars = p, opacity = 1.0, cmap = cmap, stitle = stitle, show_edges = show_edges)
+            else:
+                stitle = p + " new"
+                plotter.add_mesh(newMesh.copy(), scalars = p, opacity = 1.0, cmap = cmap, stitle = stitle, show_edges = show_edges)
+            #surf_list.append(surf)
+
+        plotter.link_views()
+
+    # setup camera and close
+    fig = plotter.show()
+
+    input("[WAIT]: hit <return> to carry on")
+
+    newParams = np.empty((newX.shape[0],5))
+    for pp, p in enumerate(param_names):
+        newParams[:,pp] = newMesh.point_arrays[p]
+
+    # fix tau_in and tau_out to their original, exact values
+    newParams[:,1] = params[0,1]
+    newParams[:,3] = params[0,3]
+    print("newParams:", newParams)
+
+    return newParams
+
+
+def write_carp_adjustment_files(outputdir, nodalParameters, ionic_parameter_names):
+  ''' nodal parameters must be a numpy array nnodes X 5; parameter order: conductivity, tau_in, tau_out, tau_open, tau_close
+  This routine writes only ionic model parameters (tau's)'''
+
+  npt=len(nodalParameters)
+  # create output dir
+  if not os.path.exists(outputdir):
+      os.makedirs(outputdir)
+  suffixfile=(outputdir +'/mMS' )
+  for name,index in zip(ionic_parameter_names,range(len(ionic_parameter_names))):
+      with open(suffixfile +'.'+str(name), 'w') as f:
+          #write the header
+          line=('{0}\nintra\n'.format(npt))
+          f.write(line)
+          #write the values
+          for pointid in range(npt):
+            val = float(nodalParameters[pointid,1+index] )
+            line=('{0} {1}\n'.format(pointid,val))
+            f.write(line)
+
+
+def bin_values_in_array_with_output(nodalParameters, nbins, roundnbs=4):
+    ''' nodal parameters must be a numpy array nnodes X 5; parameter order: conductivity,'tau_in', 'tau_out', 'tau_open', 'tau_close'
+    This routine creates a mapping for the conductivity of the type (ID, conductivity value); Conductivity is binned in nbins bin
+    roundnbs (optional argument) tells the number of digits to round the conductivity'''
+
+    if(nbins>256):
+        print('warning, nbins: {0}>256; setting nbins=256'.format(nbins))
+        nbins=256
+    t_value=0.0005
+    #extract the array of the conductivities
+    array = nodalParameters[:,0]
+    mini = float(np.nanmin(array))    
+    maxi = float(np.nanmax(array))
+    dh=(maxi-mini)/float(nbins)
+    #create the reference values
+    if(dh>0):
+        meanvalues=[round( float(mini+0.5*dh+j*dh) ,roundnbs) for j in range(0,nbins)]
+    else:
+        meanvalues=[round(maxi,roundnbs)]
+    #build the regionID -> conductivity map
+    code_to_value=np.zeros(shape=(len(meanvalues),1) )
+    for val,code in zip(meanvalues, range(len(meanvalues)) ):
+      code_to_value[code]=val
+    #build the nodeID -> regionID map
+    npt=len(nodalParameters)    
+    node_to_code=np.zeros(shape=(npt,1) )
+    for p in range(npt):    
+          if(dh>0):
+              rescaledValue = (array[p]-mini)/((1.0+t_value)*dh)
+          else:
+              rescaledValue = 0
+          index= int(math.trunc(rescaledValue))
+          node_to_code[p]=index
+    return(code_to_value,node_to_code)
+    
+
+def generate_element_labels(nodalRegions, connectivity):
+    '''This function generates an array of element labels from the connectivity and the nodal regions '''
+    nTr=len(connectivity)
+    elemReg=np.zeros(shape=(nTr), dtype = np.int32)
+    for jTr in range(nTr):
+        nodes=connectivity[jTr,:]
+        labels=np.array([ nodalRegions[nodes[0]],nodalRegions[nodes[1]],nodalRegions[nodes[2]] ]    )
+        numOfLab=len(np.unique(labels))
+        # same label for the three points: within the region; median of 3 equal values
+        # 3 different labels: take the median of the 3
+        medval=int(np.median(labels))       # Here the median is the label with most recurrences
+        TrREgionLabel=medval
+        # one edge (i.e. two points) on the boundary of two region: region label is the 3rd point
+        if(numOfLab==2):                     
+            unival=set(np.unique(labels))        # Remove the median as the elemt belongs to the other region (less recurrences)
+            unival.remove(medval)
+            TrREgionLabel=int(unival.pop())
+        elemReg[jTr]=TrREgionLabel
+    return(elemReg)
+
+
+def write_fake_carp_fiber(connectivity, outfile):
+    """ writes a fake fiber file with fiber oriented along x axis"""
+    nEl=len(connectivity)
+    with open(outfile +'.lon', 'w') as ff:
+      ff.write('1\n')
+      for pline in range(nEl):
+        ff.write('1.0000 0.0000 0.0000\n')
+
+
+def write_carp_nodes(nodeCoords, outfile):
+    """ Writes carp .pts file;  nodeCoords must be a numpy array of size npt*3. 
+    WARNING: point coordiantes must be in microns!!! """
+    npt=len(nodeCoords)
+    with open(outfile +'.pts', 'w') as fp:
+        fp.write('{0}\n'.format(npt))
+        for node in nodeCoords:
+            fp.write('{0:.6f} {1:.6f} {2:.6f}\n'  .format(node[0],node[1],node[2]))
+
+    
+def write_carp_triangles(connectivity, regionlabels, outfile):
+    '''  writes the carp .elem file with the labelled elements '''
+    nEl=len(connectivity)
+    with open(outfile +'.elem', 'w') as fe:
+        fe.write('{0}\n'.format(nEl))
+        for conn,lab in zip(connectivity,regionlabels):
+            fe.write('Tr {0} {1} {2} {3}\n'.format(conn[0],conn[1],conn[2],lab))
+
+
+def write_carp_param_file(ID_to_conductivity_map, outfile, ionic_parameter_names, bidm_eqv_mono=True, vcrit=0.1):
+    """Writes regional properties within a .par file for Carp """
+    with open(outfile +'.par','w') as fc:
+        fc.write('#CARP Param file automatically generated\n\n')
+        fc.write('#############################\n')
+        fc.write('# GLOBAL AND I/O PARAMETERS #\n')
+        fc.write('#############################\n')
+        # First parameters that user can modify in a second time
+        fc.write('mass_lumping = 0\n')
+        fc.write('bidomain     = 0\n')
+        # if 1: harmonic mean of conductivity; if 0: takes intra for monodomain
+        if(bidm_eqv_mono):
+            fc.write('bidm_eqv_mono   = 1\n') 
+        else:
+            fc.write('bidm_eqv_mono   = 0\n') 
+        fc.write('parab_solve  = 1\n\n')
+        # PARAMETERS:
+        fc.write('#####################\n')
+        fc.write('# Solver Parameters #\n')                
+        fc.write('#####################\n')                
+        fc.write('#precond: 0=none; 1=diagonal; 2 Ichol; 3 System reduction\n')
+        fc.write('cg_precond   = 2\n')                
+        fc.write('cg_tol_parab = 1.0e-7\n\n')                
+        fc.write('#######################################\n')
+        fc.write('# IMP regions definition (cell model) #\n')
+        fc.write('#######################################\n')
+        fc.write('num_imp_regions                = 1\n')
+        fc.write('imp_region[0].name             = "MYO"\n')
+        fc.write('imp_region[0].num_IDs          = {0}\n'.format(len(ID_to_conductivity_map)) )  
+        # Now write region IDs
+        for ID in range( len(ID_to_conductivity_map) ):
+            fc.write('imp_region[0].ID[{0}]            = {0}\n'.format(ID)  )
+        #Now other IMP quantities
+        fc.write('imp_region[0].cellSurfVolRatio = 1.0\n')
+        fc.write('imp_region[0].im               = "mMS"\n')
+        fc.write('imp_region[0].im_param         = "V_gate={0},a_crit={0}"\n'.format(vcrit)    )
+        fc.write('###\n\n')
+        # Write the adjustment files
+        fc.write('num_adjustments                = {0}\n'.format(len(ionic_parameter_names) ) )
+        for iname,iseq in zip(ionic_parameter_names,range(len(ionic_parameter_names)) ):
+            fc.write('adjustment[{0}].variable  ="mMS.{1}"\n'.format(iseq,iname) )
+            fc.write('adjustment[{0}].file      ="mMS.{1}"\n'.format(iseq,iname) )
+        fc.write('\n')
+        fc.write('########################\n')
+        fc.write('# Conductivity Regions #\n')
+        fc.write('########################\n')
+        # Write conductivity regions
+        fc.write('num_gregions         = {0}\n'.format(len(ID_to_conductivity_map) ) )
+        for value,ID in zip(ID_to_conductivity_map, range(len(ID_to_conductivity_map)) ):
+            fc.write('gregion[{0}].name      = "MYO_{0}"\n'.format(ID) )
+            fc.write('gregion[{0}].num_IDs   =  1\n'.format(ID) )
+            fc.write('gregion[{0}].ID[0]     = {0}\n' .format(ID) )
+            if(bidm_eqv_mono):
+                mcond = 2.0*round( float(value),4 ) # NOTE: the x1000 multiplier is done when reading the files in
+            else:
+                mcond = round( float(value),4 )
+
+            fc.write('gregion[{0}].g_el      = {1}\n'.format(ID,mcond))
+            fc.write('gregion[{0}].g_et      = {1}\n'.format(ID,mcond))
+            fc.write('gregion[{0}].g_il      = {1}\n'.format(ID,mcond))
+            fc.write('gregion[{0}].g_it      = {1}\n'.format(ID,mcond))
+            fc.write('###\n')
+        
+
+def create_stimulus_files(filename, outputdir):
+    """Code to create stimulus files"""
+
+    # for sites in stimulus
+    #   load data
+    #   write file into correct directory
+    #
+    # 
+
+    print("Creating stimulus files")
+
+    f = h5py.File(filename, "r")
+    keys = []
+    for key in f["stimulus"]:
+        print("stimulus site:", key)
+        keys.append(key)
+    f.close() 
+   
+    for key in keys:
+        idx = hu.getDataset(filename, "stimulus", key)
+        with open(outputdir + "/" + key + ".vtx", 'w') as f:
+            # write the header (number of points, type of stimuls)
+            line=('{:d}\nintra\n'.format(idx.shape[0]))
+            f.write(line)
+
+            # write the values
+            for i in idx:
+                line=('{:d}\n'.format(i))
+                f.write(line)
+
+
+## FUNCTIONS TO IMPLEMENT TO READ THE QUANTITIES
+## ---------------------------------------------
+
+def load_element_table(filename):
+    '''Load triangle data i.e. element list; 0 index'''
+    Tri = hu.getDataset(filename, "sim_mesh", "Tri")
+    return(Tri)
+
+
+#def load_sim_params(filename):
+#    '''Load vertex/node parameters - (#vertex x 5) shaped array, ordered as D, tau_in, tau_out, tau_open, tau_close'''
+#    sim_params = np.load(filename)
+#    sim_params[:,0] *= 1000.0 # convert D into units needed for CARP
+#    return(sim_params)
+
+
+def load_point_coordinates(filename):
+    '''Load vertex/node coordinates (units in mircrons)'''
+    X = hu.getDataset(filename, "sim_mesh", "X")
+    return(X)
+
+
+def main(args):
+
+    filename = args.filename
+    head, tail = os.path.split(args.filename)
+
+    # load the spatial mesh data
+    X = hu.getDataset(filename, "mesh", "X")
+    Tri = hu.getDataset(filename, "mesh", "Tri")
+    simX = hu.getDataset(filename, "sim_mesh", "X")
+    simTri = hu.getDataset(filename, "sim_mesh", "Tri")
+
+    # load parameters
+    param_names = ["D", "tau_in", "tau_out", "tau_open", "tau_close"]
+    params = np.empty((X.shape[0], 5))
+
+    print("group:", args.params)
+
+    for pp, p in enumerate(param_names):
+
+        params[:,pp] = hu.getDataset(filename, args.params, p)
+
+    sim_params = transfer(X, Tri, params, simX, simTri)
+    sim_params[:,1] = params[:,1].mean() # fix tau_in
+    sim_params[:,3] = params[:,3].mean() # fix tau_open
+
+    sim_params[:,0] *= 1000.0 # convert D into units needed for CARP
+
+
+    outputdir = "CARPsim_" + tail.split(".")[0] + "_" + args.params + "_" + datetime.date.strftime(datetime.datetime.now(), '%d%b%Y%z_%H%M')
+    print("output directory:", outputdir)
+    suffix = 'mesh'
+    nbins = 200
+    
+    ionic_param = ['tau_in', 'tau_out', 'tau_open', 'tau_close']
+    
+    if not os.path.exists(outputdir):
+        os.makedirs(outputdir)
+    
+    # data file; NOTE: when upscaling the mesh, I will need another file where I store parameters and mesh
+    coordinates = load_point_coordinates(filename)
+    element_table = load_element_table(filename)
+
+    #First: write adjustment files. These files are the 4 ionic parameters defined nodalwise
+    write_carp_adjustment_files(outputdir,sim_params,ionic_param)
+    
+    # Bin the conductivity and generate code to value and node to code maps
+    code_to_value,node_to_code = bin_values_in_array_with_output(sim_params, nbins,roundnbs = 4)
+    
+    #Determine element labels
+    element_labels = generate_element_labels(node_to_code,element_table)
+
+    # Write carp nodes
+    write_carp_nodes(coordinates, (outputdir+'/'+suffix))
+    
+    # Write carp triangles
+    write_carp_triangles(element_table,element_labels,(outputdir+'/'+suffix))
+    
+    # write carp parameters 
+    write_carp_param_file(code_to_value, (outputdir+'/'+suffix), ionic_param)
+    
+    # Write fake fibres for carp, aligned as (1,0,0)
+    write_fake_carp_fiber(element_table, (outputdir+'/'+suffix))
+
+    create_stimulus_files(filename, outputdir)
+
+    shutil.copy(CARP_SCRIPT_PATH, outputdir + "/runCARP.sh")
+
+    print("Done!")
+
+    ### end of main ###
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description = "Generate the simulation files.", epilog = "Run script from folder containing the hdf5 file.")
+    parser.add_argument("--filename", required = True, help = "Name of hdf5 file containing the high resolution mesh.")
+    parser.add_argument("--params", required = True, help = "Name of hdf5 file group for the parameters.")
+    args = parser.parse_args()
+
+    main(args)
+
+

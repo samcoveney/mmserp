@@ -1,0 +1,113 @@
+#!/usr/bin/env python
+
+"""
+    generateFields.py
+"""
+
+import argparse
+import numpy as np
+from datetime import datetime
+
+import mmserp.hdf5utils as hu
+
+import mmserp.plots as plots
+from mmserp.turbocmap import cmap as tb_cmap
+from mmserp.surrogates import ERP_maps, prior_sample, scale_range
+
+
+def main(args):
+    """Generate and save parameter fields for use in simulations."""
+
+    filename = args.filename
+
+    print("Loading mesh data from:", filename)
+
+    # load mesh data
+    X = hu.getDataset(filename, "mesh", "X")
+    Tri = hu.getDataset(filename, "mesh", "Tri")
+    centroids = hu.getDataset(filename, "mesh", "centroids")
+
+    # append vertices and centroids
+    XandC = np.vstack([X, centroids])
+
+    # get mesh spatial data
+    Q = hu.getDataset(filename, "mesh", "Q")
+    V = hu.getDataset(filename, "mesh", "V")
+
+    # constant parameters
+    v_gate = 0.1
+    tau_in = 0.05
+    tau_open = 120
+
+    # create ERP parameter fields
+    if args.fields == "ERP":    
+
+        print("Creating ERP parameter fields")
+
+        LENGTHSCALE = 20
+        erps1, erps2, tau_out_true, APD_max_true = ERP_maps(X, Tri, Q, V, lengthscale = LENGTHSCALE)
+        
+        plots.plot_fields(X, Tri, fields = [tau_out_true, APD_max_true], titles = ["tau_out", "APD_max"], cmap = tb_cmap).show()
+        
+        inp = input("Do you want to save these fields? Type yes/[no]: ")
+        print("You entered:", inp)
+
+        # save to hdf5
+        if inp == "yes" or inp == "YES":
+        
+            gname = str(input("Type group name for saving parameters (default 'params'): ") or gname)
+            print("Saving to group name:", gname)
+
+            h_min = 1 / ( 1 + tau_out_true/(4*tau_in) * (1 - v_gate)**2 )
+            tau_close_true = -APD_max_true / np.log(h_min)
+     
+            hu.createGroup(filename, gname)
+            hu.createDataset(filename, gname, "tau_out", tau_out_true)
+            hu.createDataset(filename, gname, "tau_close", tau_close_true)
+            
+            hu.createDataset(filename, gname, "tau_in", np.full_like(tau_close_true, tau_in))
+            hu.createDataset(filename, gname, "tau_open", np.full_like(tau_close_true, tau_open))
+
+        else:
+            print("Not saving.")
+
+    # create CV parameter fields
+    if args.fields == "CV":
+
+        print("Creating CV parameter fields")
+
+        CV_max_minmax  = [0.03, 0.13]
+        LENGTHSCALE = 20
+        sample = prior_sample(Q, V[0:X.shape[0]], lengthscale = LENGTHSCALE, amplitude = 10.0)
+        CV_max = scale_range(sample, CV_max_minmax[0], CV_max_minmax[1])
+        
+        plots.plot_fields(X, Tri, fields = [CV_max], titles = ["CV_max"], cmap = tb_cmap).show()
+        
+        inp = input("Do you want to save these fields? Type yes/[no]: ")
+        print("You entered:", inp)
+
+        # save to hdf5
+        if inp == "yes" or inp == "YES":
+        
+            D = 0.5*tau_in * ( 2*CV_max / (1 - 2*v_gate) )**2
+
+            gname = str(input("Type group name for saving parameters (default 'params'): ") or gname)
+            print("Saving to group name:", gname)
+
+            hu.createGroup(filename, gname)
+            hu.createDataset(filename, gname, "D", D) 
+
+        else:
+            print("Not saving.")
+
+    return 
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description = "Generate the simulation files.", epilog = "Run script from folder containing the hdf5 file.")
+    parser.add_argument("--filename", required = True, help = "Name of hdf5 file containing the high resolution mesh.")
+    parser.add_argument("--fields", required = True, choices = ["ERP", "CV"], help = "Which fields to generate.")
+    args = parser.parse_args()
+
+    main(args)
+

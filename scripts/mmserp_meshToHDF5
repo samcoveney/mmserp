@@ -1,0 +1,63 @@
+#!/usr/bin/env python
+
+"""
+    UAC_to_hdf5.py
+
+    Take the simulation ready meshes (which have UAC and LGE) and package the data into a hdf5 file format.
+"""
+
+import numpy as np
+import pandas as pd
+
+import mmserp.hdf5utils as hu
+
+def main():
+
+    # get filename
+    filename = ""
+    while filename == "":
+        filename = input("Type name of file (without extension): ")
+    filename += ".hdf5"
+
+    # create a new file
+    hu.createHDF5(filename)
+
+    # add mesh
+    # --------
+    hu.createGroup(filename, "sim_mesh")
+
+    # get nodes/vertices
+    X = np.loadtxt("Labelled.pts", delimiter = " ", skiprows = 1)
+    hu.createDataset(filename, "sim_mesh", "X", data = X.astype(np.float32))
+
+    # get faces/elems
+    Tri = pd.read_csv("Labelled.elem", header = None, names = ["type", "x", "y", "z", "label"], skiprows = 1, delimiter = " ")
+    Tri = Tri[["x", "y", "z"]].values
+    hu.createDataset(filename, "sim_mesh", "Tri", data = Tri.astype(np.int32))
+
+
+    # add UAC coordinates
+    # -------------------
+    UAC = np.loadtxt("Labelled_Coords_2D_Rescaling_v3_C.pts", delimiter = " ", skiprows = 1)[:,0:2]
+    hu.createDataset(filename, "sim_mesh", "UAC", data = UAC.astype(np.float16))
+
+
+    # add normalized LGE scores
+    # -------------------------
+
+    LGE_raw = np.loadtxt("LGE_full2.dat")
+
+    LGE_info = np.loadtxt("prodThresholds.txt")
+    blood_pool_mean = LGE_info[2]
+    blood_pool_std = LGE_info[3]
+
+    LGE = (LGE_raw - blood_pool_mean) / blood_pool_std
+
+    hu.createDataset(filename, "sim_mesh", "LGE_norm", data = LGE.astype(np.float16))
+
+    return
+
+
+if __name__ == "__main__":
+    main()
+
