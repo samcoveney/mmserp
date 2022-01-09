@@ -1,0 +1,42 @@
+#!/usr/bin/env python
+
+"""
+    view_UAC_mesh.py
+
+    View the simulation mesh with UAC and LGE scores.
+"""
+
+import sys
+import os
+
+import pyvista as pv
+import numpy as np
+
+import mmserp.hdf5utils as hu
+from mmserp.turbocmap import cmap
+from mmserp.plots import plot_fields
+
+def view_mesh(filename, evnum):
+
+    evnum = int(evnum)
+
+    # get mesh spatial data
+    X = hu.getDataset(filename, "mesh", "X")
+    Tri = hu.getDataset(filename, "mesh", "Tri")
+    V = hu.getDataset(filename, "mesh", "V")
+    title = "eigenvector"
+    scalars = V[0:X.shape[0],evnum]
+
+    plot_fields(X, Tri, [scalars], ["eigvec " + str(evnum) ]).show()
+
+    input("[WAIT]: hit <return> to close.")
+
+    return
+
+if __name__ == "__main__":
+
+    if len(sys.argv) != 3:
+        print("Error: call as ./{} <filename> <eigenvector_number>".format(os.path.basename(__file__)))
+    else:
+        view_mesh(sys.argv[1], sys.argv[2])
+

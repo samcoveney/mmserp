@@ -2,7 +2,9 @@
 
 import numpy as np
 import pyvista as pv
+pv.set_plot_theme("document")
 
+from matplotlib.colors import LinearSegmentedColormap
 
 def Tri_convert(Tri):
     """Creates a Tri representation suitable for pyvista."""
@@ -60,9 +62,12 @@ def plot_field_and_points(X, Tri, scalars = None, cmap = "jet", clim = None, tit
         fmt=fmt,
         font_family="arial",
         vertical = True,
-        position_x=0.75,
-        position_y=0.90,
-        height = 0.85)
+        #position_x=0.75,
+        #position_y=0.90,
+        position_x=10, # will deliberatively hide scalar bar of first image
+        position_y=0.05,
+        height = 0.85,
+        title = title + "_dummy")
 
     # plot using pyvista
     plotter = pv.Plotter(shape = "1|1", window_size = (1850,700), border = False)
@@ -79,18 +84,22 @@ def plot_field_and_points(X, Tri, scalars = None, cmap = "jet", clim = None, tit
     # loop over views of the mesh
     for i in range(2):
 
-        # create colorbar for second plot only, if scalars defined
-        if i == 1 and (scalars is not None):
-            stitle = title
-        else:
-            stitle = None
+#        # create colorbar for second plot only, if scalars defined
+#        if i == 1 and (scalars is not None):
+#            stitle = title
+#        else:
+#            stitle = None
         
         plotter.subplot(i)
+
+        if i == 1:
+            sargs["title"] = title
+            sargs["position_x"] = 0.75 
 
         # plot mesh
         if (scalars is not None):
             plotter.add_mesh(plt_surf.copy(), scalars = scalars,\
-                             clim = clim, cmap = cmap, stitle = stitle, scalar_bar_args = sargs, above_color = above_color)
+                             clim = clim, cmap = cmap, scalar_bar_args = sargs, above_color = above_color)
         else:
             plotter.add_mesh(plt_surf, color = "white", opacity = alpha)
 
@@ -107,7 +116,7 @@ def plot_field_and_points(X, Tri, scalars = None, cmap = "jet", clim = None, tit
         if i == 0: plotter.view_xz()
         if i == 1: plotter.view_xz(negative = True)
 
-        plotter.camera.Zoom(1.6)
+        plotter.camera.Zoom(1.58)
 
         # offset second plot after rotation
         if i > 0:

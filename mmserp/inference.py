@@ -3,7 +3,36 @@ import time
 import sys, traceback
 import pkg_resources
 
-STAN_MODEL_PKL = pkg_resources.resource_filename(__name__, 'data/stanmodel_tophat.pkl')
+import numpy as np
+import trimesh
+from scipy.spatial.distance import pdist, cdist, squareform
+
+import pickle
+
+from mmserp.surrogates import erp_predict
+from mmserp.utils import printProgBar
+
+STAN_MODEL_PKL_TOPHAT = pkg_resources.resource_filename(__name__, 'data/stanmodel_tophat.pkl')
+STAN_MODEL_PKL_GAUSSIAN = pkg_resources.resource_filename(__name__, 'data/stanmodel_gaussian.pkl')
+
+DATA_PATH = pkg_resources.resource_filename(__name__, 'data/surrogate_coefficients.npz')
+surrogate_data = np.load(DATA_PATH)
+coeffs_ERPS1 = surrogate_data["coeffs_ERPS1"]
+coeffs_ERPS2 = surrogate_data["coeffs_ERPS2"]
+
+
+def SD_RBF(Q, rho, alpha):
+    """Spectral Density for RBF.
+    
+    Depends on dimension D, which appears as D/2, so neglected here.
+    Using input Q = w^2 i.e. accepting w^2 as input, rather than w
+
+    """
+    
+    SD = alpha**2 * (2.0 * np.pi * rho**2) * np.exp( -2 * np.pi**2 * rho**2 * Q );
+
+    return SD
+
 
 def make_s2list(s2resolution):
     """Create S2 list"""
@@ -73,15 +102,14 @@ def design_X(X, Tri, num, keep, NUM_designs = 100000):
 
 
 
-def stan_fit(vert_idx, erps1, erps2, S2list_erps1, S2list_erps2, deltaS2, prnt = False, control = {}):
+def stan_fit(vert_idx, erps1, erps2, S2list_erps1, S2list_erps2, deltaS2, newQ, PHI, numX, prnt = False, top_hat = True, ITER = 2000, control = {}):
     """Function for the whole stan fitting process."""
 
-    # reload this to rededine the object just in case
-    sm = pickle.load(open(STAN_MODEL_PKL, 'rb'))
+    if top_hat:
+        sm = pickle.load(open(STAN_MODEL_PKL_TOPHAT, 'rb'))
+    else:
+        sm = pickle.load(open(STAN_MODEL_PKL_GAUSSIAN, 'rb'))
     
-    # good for testing
-    ITER = 2000
-
     vertex = []
     a_list, b_list = [],[] # collect centre of brackets, for plotting
 
@@ -90,7 +118,7 @@ def stan_fit(vert_idx, erps1, erps2, S2list_erps1, S2list_erps2, deltaS2, prnt =
         
         try:
             
-            if True: # new top_hat llh method
+            if top_hat: # new top_hat llh method
                 
                 a = S2list_erps1[(S2list_erps1 <= erps1[v])][-1]
                 ERP_obs_a = (a)
@@ -134,7 +162,7 @@ def stan_fit(vert_idx, erps1, erps2, S2list_erps1, S2list_erps2, deltaS2, prnt =
     #newQ = Q[0:num]
 
 
-    if True: # new top_hat llh
+    if top_hat: # new top_hat llh
         ERP_dat = {'N': len(vertex), # account for 2x observation (two ERP) in the stan code
                   'y': np.hstack([y_erps1, y_erps2]),
                   'deltaS2': deltaS2, # 95% probability that true ERP is in bracket
@@ -165,8 +193,8 @@ def stan_fit(vert_idx, erps1, erps2, S2list_erps1, S2list_erps2, deltaS2, prnt =
     samples = fit.extract()
     print("sample size:", samples['beta1'].shape)
     
-    #with open('samples.pkl', 'wb') as f:
-    #    pickle.dump(samples, f)
+    with open('samples.pkl', 'wb') as f:
+        pickle.dump(samples, f)
     
     beta1, beta2 = samples['beta1'], samples['beta2']
     mean1, mean2 = samples['mean1'], samples['mean2']
@@ -177,18 +205,12 @@ def stan_fit(vert_idx, erps1, erps2, S2list_erps1, S2list_erps2, deltaS2, prnt =
     # for ease in validation loop, I'll calculate the posterior mean here...
     # ----------------------------------------------------------------------
     
-    # Note that we used thin = 1, and yet I've only used last numSamples
+    newPhi = PHI[0:numX].T.copy()
     
-    # TODO: should discard the burn-in (although Stan may have done this), thin the rest, the select random runs
-    
-    newPhi = PHI[0:X.shape[0]].T.copy()
-    
-    f1 = np.zeros(X.shape[0])
+    f1 = np.zeros(numX)
     f2 = np.zeros_like(f1)
 
     count = 1
-    numSamples = 100
-    #for i in range(beta1.shape[0] - numSamples, beta1.shape[0]):
     for i in range(0, beta1.shape[0]): # use all samples remaining (after discard warm-up and thinning)
 
         newf1 = mean1[i] + ( beta1[i] * np.sqrt(SD_RBF(newQ, rho1[i], alpha1[i])) ).dot(newPhi)
@@ -201,4 +223,78 @@ def stan_fit(vert_idx, erps1, erps2, S2list_erps1, S2list_erps2, deltaS2, prnt =
  
     return f1, f2, samples
     
+
+def samples_stats(samples, newQ, PHI, numX, A):
+    """Calculate statistics of fields from the samples"""
+
+    print("Calculating stats of fields from the samples")
+
+    beta1, beta2 = samples['beta1'], samples['beta2']
+    mean1, mean2 = samples['mean1'], samples['mean2']
+    rho1, rho2 = samples['rho1'], samples['rho2']
+    alpha1, alpha2 = samples['alpha1'], samples['alpha2'] 
+
+    # Below, I have done this sampling to get the mean and stdev of the posterior at each point:
+    # stan samples -> parameter fields samples -> erp samples -> erp mean and standard deviation.
+
+    # for parameter sample stats
+    f1 = np.zeros(numX)
+    f2 = np.zeros_like(f1)
+    s1 = np.zeros_like(f1)
+    s2 = np.zeros_like(f1)
+
+    # for erp samples stats
+    ef1 = np.zeros_like(f1)
+    ef2 = np.zeros_like(f1)
+    es1 = np.zeros_like(f1)
+    es2 = np.zeros_like(f1)
+
+
+    newPhi = PHI[0:numX].T.copy()
+    count = 1
+    #numSamples = 100
+    #for i in range(beta1.shape[0] - numSamples, beta1.shape[0]):
+    prefix = "progress"
+    printProgBar(0, beta1.shape[0], prefix = prefix, suffix = '')
+    for i in range(0, beta1.shape[0]): # use all samples remaining (after discard warm-up and thinning)
+    #numSamples = beta1.shape[0]
+    #for i in range(numSamples):
+
+        # need to 'sanitize' the parameters again, because we would chuck them away if violating bounds
+       
+        # if I do this, do I want to calculate mean and variance of sanitized samples, or original samples?
+        
+        newf1 = mean1[i] + ( beta1[i] * np.sqrt(SD_RBF(newQ, rho1[i], alpha1[i])) ).dot(newPhi)
+        newf2 = mean2[i] + ( beta2[i] * np.sqrt(SD_RBF(newQ, rho2[i], alpha2[i])) ).dot(newPhi)
+        
+        new_ef1, new_ef2, newf1, newf2 = erp_predict(newf1, newf2, A) # note: sanitizes
+        
+        
+        tmp = f1 + (newf1 - f1) / count # tmp is updated mean
+        s1 = s1 + (newf1 - f1)*(newf1 - tmp) # calculate updated var, needs old mean f1 and updated mean tmp
+        f1 = tmp # save updated mean
+        
+        tmp = f2 + (newf2 - f2) / count
+        s2 = s2 + (newf2 - f2)*(newf2 - tmp)
+        f2 = tmp
+        
+        tmp = ef1 + (new_ef1 - ef1) / count
+        es1 = es1 + (new_ef1 - ef1)*(new_ef1 - tmp)
+        ef1 = tmp
+        
+        tmp = ef2 + (new_ef2 - ef2) / count
+        es2 = es2 + (new_ef2 - ef2)*(new_ef2 - tmp)
+        ef2 = tmp
+        
+        count += 1
+        printProgBar(count, beta1.shape[0], prefix = prefix, suffix = '')
+        
+    # calculate stdev
+    s1 = np.sqrt(s1 / (count - 1))
+    s2 = np.sqrt(s2 / (count - 1))
+
+    es1 = np.sqrt(es1 / (count - 1))
+    es2 = np.sqrt(es2 / (count - 1))
+
+    return f1, f2, s1, s2, ef1, ef2, es1, es2
 

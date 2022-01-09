@@ -42,19 +42,6 @@ def spectralDensity(w, smoothness, lengthscale, amplitude):
     return result
 
 
-def SD_RBF(Q, rho, alpha):
-    """Spectral Density for RBF.
-    
-    Depends on dimension D, which appears as D/2, so neglected here.
-    Using input Q = w^2 i.e. accepting w^2 as input, rather than w
-
-    """
-    
-    SD = alpha**2 * (2.0 * np.pi * rho**2) * np.exp( -2 * np.pi**2 * rho**2 * Q );
-
-    return SD
-
-
 def prior_sample(Q, V, lengthscale, amplitude):
     """Generate a draw from the prior of the GP on the manifold."""
 
@@ -158,6 +145,9 @@ def erp_predict(tau_out, APD_max, A):
 
         # distance weight average method
         w = 1.0 / sq_biharmonic(A, b, good)**4
+        if np.any(np.isnan(w)) or np.any(np.isinf(w)):
+            print(w)
+            input("wait")
 
         # average the parameters, and calculate the resulting ERP
         tau_out[b] = np.sum(w * tau_out[good])/np.sum(w)

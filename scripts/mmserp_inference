@@ -1,0 +1,241 @@
+#!/usr/bin/env python
+
+"""
+    mmserp_inference
+
+    * create and save the observation design (locations, S2list)
+    * do the parameter inference
+    * create the plots of true and predicted parameters
+    * create the plots of simulation APD from true params and predicted params 
+"""
+
+import argparse
+import numpy as np
+from datetime import datetime
+import matplotlib.pyplot as plt
+
+import mmserp
+import mmserp.hdf5utils as hu
+from mmserp.plots import plot_field_and_points, colormap
+from mmserp.inference import design_X, make_s2list, stan_fit, samples_stats
+#import mmserp.plots as plots
+from mmserp.turbocmap import cmap as tb_cmap
+from mmserp.surrogates import ERP_maps, prior_sample, scale_range, erp_predict
+
+
+def main(args):
+
+    filename = args.filename
+
+    # get mesh spatial data
+    X = hu.getDataset(filename, "mesh", "X")
+    Tri = hu.getDataset(filename, "mesh", "Tri")
+    Q = hu.getDataset(filename, "mesh", "Q")
+    V = hu.getDataset(filename, "mesh", "V")
+
+    # required for biharmonic distance calculation, use in some ERP functions
+    A = V[0:X.shape[0], 1:33]/Q[1:33]
+
+    # some constants
+    v_gate = 0.1
+    tau_in = 0.05
+    tau_open = 120
+
+    # create observation design
+    if args.obs:
+        if args.num > 0:
+
+            # observation locations
+            vert_idx = design_X(X, Tri, num = args.num, keep = 1).flatten()
+            plot_field_and_points(X, Tri, points = X[vert_idx], points_size = 40, alpha = 0.8).show()
+
+            # define S2 resolution
+            S2list_erps1, S2list_erps2 = make_s2list(args.deltaS2)
+            print("S2list erps1:", S2list_erps1)
+            print("S2list erps2:", S2list_erps2)
+
+            print("The parameters group is:", args.params)
+            inp = input("Do you want to save this observation design? (Will overwrite previous design in group) Type yes/[no]: ")
+            print("You entered:", inp)
+
+            # save to hdf5
+            if inp == "yes" or inp == "YES":
+
+                hu.createDataset(filename, args.params, "vert_idx", vert_idx)
+                hu.createDataset(filename, args.params, "S2list", S2list_erps1)            
+
+        else:
+            print("Specify --num > 0 to create an observation design")
+
+    # plot the groundTruth parameters
+    if args.plotGroundTruth:
+
+        tau_out_true = hu.getDataset(filename, args.params, "tau_out")
+        tau_close_true = hu.getDataset(filename, args.params, "tau_close")
+        h_min = 1 / ( 1 + tau_out_true/(4*tau_in) * (1 - v_gate)**2 )
+        APD_max_true = tau_close_true * np.log( 1.0 / h_min )
+     
+        erps1, erps2, _, _ = erp_predict(tau_out_true, APD_max_true, A)
+
+        # create a clim (color limits) dictionary
+        CLIM = {}
+        CLIM["tau_out"] = [np.min(tau_out_true), np.max(tau_out_true)]
+        CLIM["APD_max"] = [np.min(APD_max_true), np.max(APD_max_true)]
+        CLIM["ERPS1"]   = [np.min(erps1), np.max(erps1)]
+        CLIM["ERPS2"]   = [np.min(erps2), np.max(erps2)]
+
+        print("CLIM:\n", CLIM)
+
+        # plot the full parameter fields
+        plot_field_and_points(X, Tri, tau_out_true, points = None, points_scalars = None, title = "Tout", cmap = tb_cmap, clim = CLIM["tau_out"]).save_graphic("tauOut_true.pdf")
+        plot_field_and_points(X, Tri, APD_max_true, points = None, points_scalars = None, title = "APDmax", cmap = tb_cmap, clim = CLIM["APD_max"]).save_graphic("APDmax_true.pdf")
+
+        # plot the full ERP fields
+        plot_field_and_points(X, Tri, erps1, points = None, points_scalars = None, title = "ERP(S1)", cmap = tb_cmap, clim = CLIM["ERPS1"]).save_graphic("ERPS1_true.pdf")
+        plot_field_and_points(X, Tri, erps2, points = None, points_scalars = None, title = "ERP(S2)", cmap = tb_cmap, clim = CLIM["ERPS2"]).save_graphic("ERPS2_true.pdf")
+
+
+    # plot APD from full atrial simulation
+    if args.plotAPD:
+        if args.pacesite != "":
+
+            group = "sim_results/" + args.params + "/"+ args.pacesite + "/600"        
+
+            for res in ["LAT", "APD", "APD20"]:
+                
+                data = hu.getDataset(filename, group, res)
+                plot_field_and_points(X, Tri, data, points = None, points_scalars = None, title = res, cmap = tb_cmap).save_graphic(res + ".pdf")
+        
+        else:
+            print("Specify --pacesite to make these plots")
+
+
+    # infer the parameters from ERP observations
+    if args.inference:
+
+        # load observation design
+        vert_idx = hu.getDataset(filename, args.params, "vert_idx")
+        S2list_erps1 = hu.getDataset(filename, args.params, "S2list")
+        S2list_erps2 = S2list_erps1.copy()
+        deltaS2 = S2list_erps1[1] - S2list_erps1[0]
+
+        # load ground truth
+        tau_out_true = hu.getDataset(filename, args.params, "tau_out")
+        tau_close_true = hu.getDataset(filename, args.params, "tau_close")
+        h_min = 1 / ( 1 + tau_out_true/(4*tau_in) * (1 - v_gate)**2 )
+        APD_max_true = tau_close_true * np.log( 1.0 / h_min )
+     
+        erps1, erps2, _, _ = erp_predict(tau_out_true, APD_max_true, A)
+
+        # define size of GP basis
+        num = args.basis
+        PHI = V[:, 0:num]
+        newQ = Q[0:num]
+        iterations = 2000
+
+        # get posterior samples
+        control = {} # {"adapt_delta": 0.99}
+        _, _, samples = stan_fit(vert_idx, erps1, erps2, S2list_erps1, S2list_erps2, deltaS2, newQ, PHI, X.shape[0], control = control, prnt = True, top_hat = True, ITER = iterations)
+
+        # statistics from samples
+        f1, f2, s1, s2, ef1, ef2, es1, es2 = samples_stats(samples, newQ, PHI, X.shape[0], A)
+        # f and s are mean and stdev for parameter fields 1 and 2, and same for fields e** (1: tauOut / ERPS1, 2: APDmax / ERPS2)
+
+        # save predicted parameters, for running more atrial simulations
+        gname = args.params + "_inferred"
+
+        h_min = 1 / ( 1 + f1/(4*tau_in) * (1 - v_gate)**2 )
+        t_close_pred = -f2 / np.log(h_min)
+
+        hu.createGroup(filename, gname)
+
+        hu.createDataset(filename, gname, "tau_out", f1)
+        hu.createDataset(filename, gname, "tau_close", t_close_pred)
+
+        # also fill in the other parameters
+        for pname in ["tau_in", "tau_open", "D"]:
+            tmp = hu.getDataset(filename, args.params, pname)
+            hu.createDataset(filename, gname, pname, tmp)
+
+        # save other results
+        hu.createDataset(filename, gname, "tau_out_stdev", s1)
+        hu.createDataset(filename, gname, "APDmax_stdev", s2)
+        hu.createDataset(filename, gname, "ERPS1_mean", ef1)
+        hu.createDataset(filename, gname, "ERPS2_mean", ef2)
+        hu.createDataset(filename, gname, "ERPS1_stdev", es1)
+        hu.createDataset(filename, gname, "ERPS2_stdev", es2)
+
+
+    # plot the groundTruth parameters
+    if args.plotInferred and not(args.plotGroundTruth): print("[warning]: need --args.plotGroundTruth in order to use ---args.plotInferred")
+    if args.plotInferred and args.plotGroundTruth:
+
+        gname = args.params + "_inferred"
+
+        vert_idx = hu.getDataset(filename, args.params, "vert_idx")
+
+        f1 = hu.getDataset(filename, gname, "tau_out")
+        tau_close_true = hu.getDataset(filename, gname, "tau_close")
+        h_min = 1 / ( 1 + f1/(4*tau_in) * (1 - v_gate)**2 )
+        f2 = tau_close_true * np.log( 1.0 / h_min )
+     
+        s1 = hu.getDataset(filename, gname, "tau_out_stdev")
+        s2 = hu.getDataset(filename, gname, "APDmax_stdev")
+        ef1 = hu.getDataset(filename, gname, "ERPS1_mean")
+        ef2 = hu.getDataset(filename, gname, "ERPS2_mean")
+        es1 = hu.getDataset(filename, gname, "ERPS1_stdev")
+        es2 = hu.getDataset(filename, gname, "ERPS2_stdev")
+
+
+        # parameter fields
+        # ----------------
+        
+        # plot the full parameter fields
+        plot_field_and_points(X, Tri, f1, points = X[vert_idx], points_scalars = f1[vert_idx], title = "Tout", cmap = tb_cmap, clim = CLIM["tau_out"]).save_graphic("tauOut_pred.pdf")
+        plot_field_and_points(X, Tri, f2, points = X[vert_idx], points_scalars = f2[vert_idx], title = "APDmax", cmap = tb_cmap, clim = CLIM["APD_max"]).save_graphic("APDmax_pred.pdf")
+
+        # plot the full ERP fields
+        plot_field_and_points(X, Tri, ef1, points = X[vert_idx], points_scalars = ef1[vert_idx], title = "ERP(S1)", cmap = tb_cmap, clim = CLIM["ERPS1"]).save_graphic("ERPS1_pred.pdf")
+        plot_field_and_points(X, Tri, ef2, points = X[vert_idx], points_scalars = ef2[vert_idx], title = "ERP(S2)", cmap = tb_cmap, clim = CLIM["ERPS2"]).save_graphic("ERPS2_pred.pdf")
+
+
+        # ISE plots for ERP
+        # -----------------
+
+        ISE_clim = [0.0,3]
+
+        ISE_cmap = "CMRmap_r"
+        ISE_cmap = colormap(plt.get_cmap(ISE_cmap), 0.0, 0.8)
+
+        erps1_ISE_LGP = np.abs(ef1 - erps1) / (es1)
+        plot_field_and_points(X, Tri, scalars = erps1_ISE_LGP, title = "ERP(S1)", cmap = ISE_cmap, clim = ISE_clim).save_graphic("ERPS1_ISE.pdf")
+
+        erps2_ISE_LGP = np.abs(ef2 - erps2) / (es2)
+        plot_field_and_points(X, Tri, scalars = erps2_ISE_LGP, title = "ERP(S2)", cmap = ISE_cmap, clim = ISE_clim).save_graphic("ERPS2_ISE.pdf")
+
+
+
+    return
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description = "Generate the simulation files.", epilog = "Run script from folder containing the hdf5 file.")
+    parser.add_argument("--filename", required = True, help = "Name of hdf5 file containing the high resolution mesh.")
+    parser.add_argument("--params", required = True, help = "Name of hdf5 file group for the parameters.")
+ 
+    parser.add_argument("--obs", action = "store_true", default = False, help = "Create observation design.")
+    parser.add_argument("--deltaS2", type = int, default = 10, help = "Resolution of S2 (S3) pacing.")
+    parser.add_argument("--num", type = int, default = 0, help = "Number of observation locations.")
+
+    parser.add_argument("--plotGroundTruth", action = "store_true", default = False, help = "Create plots of the ground truth.")
+    parser.add_argument("--plotAPD", action = "store_true", default = False, help = "Create plots of the ground truth.")
+    parser.add_argument("--pacesite", default = "", help = "Pacesite, used to extract results of atrial simulation from HDF5.")
+
+    parser.add_argument("--inference", action = "store_true", default = False, help = "Do inference.")
+    parser.add_argument("--basis", type = int, default = 16, help = "How many GPMI basis coefficients for each field.")
+    parser.add_argument("--plotInferred", action = "store_true", default = False, help = "Plot inference results.")
+
+    args = parser.parse_args()
+
+    main(args)
+
