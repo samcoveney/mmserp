@@ -1,4 +1,6 @@
 
+import sys
+
 class Suppressor(object):
     """For suppressing prints occuring within functions."""
 

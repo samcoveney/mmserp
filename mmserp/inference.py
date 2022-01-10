@@ -102,7 +102,7 @@ def design_X(X, Tri, num, keep, NUM_designs = 100000):
 
 
 
-def stan_fit(vert_idx, erps1, erps2, S2list_erps1, S2list_erps2, deltaS2, newQ, PHI, numX, prnt = False, top_hat = True, ITER = 2000, control = {}):
+def stan_fit(vert_idx, erps1, erps2, S2list_erps1, S2list_erps2, deltaS2, newQ, PHI, numX, prnt = False, top_hat = True, ITER = 2000, control = {}, verbose = True):
     """Function for the whole stan fitting process."""
 
     if top_hat:
@@ -186,7 +186,7 @@ def stan_fit(vert_idx, erps1, erps2, S2list_erps1, S2list_erps2, deltaS2, newQ, 
                   'surrogate2': coeffs_ERPS2}
 
 
-    fit = sm.sampling(data=ERP_dat, iter=ITER, chains=4, control = control, thin = 10)
+    fit = sm.sampling(data=ERP_dat, iter=ITER, chains=4, control = control, thin = 10, verbose = verbose)
 
     if prnt: print(fit)
     

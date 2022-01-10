@@ -1,0 +1,257 @@
+#!/usr/bin/env python
+
+"""
+    mmserp_quantVal
+
+    * create and save the observation design (locations, S2list)
+    * do the parameter inference
+    * create the plots of true and predicted parameters
+    * create the plots of simulation APD from true params and predicted params 
+"""
+
+import argparse
+import numpy as np
+from datetime import datetime
+import matplotlib.pyplot as plt
+import time
+import pandas as pd
+
+import mmserp
+from mmserp.utils import Suppressor
+import mmserp.hdf5utils as hu
+from mmserp.plots import plot_field_and_points, colormap
+from mmserp.inference import design_X, make_s2list, stan_fit, samples_stats
+#import mmserp.plots as plots
+from mmserp.turbocmap import cmap as tb_cmap
+from mmserp.surrogates import ERP_maps, prior_sample, scale_range, erp_predict
+
+
+# bar plots for displaying ERP validation results
+
+def legend_title_left(leg):
+    c = leg.get_children()[0]
+    title = c.get_children()[0]
+    hpack = c.get_children()[1]
+    c._children = [hpack]
+    hpack._children = [title] + hpack.get_children()
+
+
+def validation_plots(DF, errbars = True, minmax_erps1 = None, minmax_erps2 = None):
+#def validation_plots(results1, results2, lengthscale_list, numObs_list, s2res_list, title = None):
+    """Bar plots for validation results
+    
+       If the DF does not contain the 3x3x3 combination of L, N, S then this code won't work!
+    
+    """
+
+    # extract things from the dataframe
+    lengthscale_list = DF["L"].unique()
+    numObs_list = DF["N"].unique()
+    s2res_list = DF["S"].unique()
+    
+    # attempt to remove outliers first
+    from scipy import stats
+    #DF['zscore_erps1'] = (DF["rmse_erps1"] - DF["rmse_erps1"].mean())/DF["rmse_erps1"].std(ddof=0)
+    #DF['zscore_erps2'] = (DF["rmse_erps2"] - DF["rmse_erps2"].mean())/DF["rmse_erps2"].std(ddof=0)
+    #DF = DF[(np.abs(DF["zscore_erps1"]) < 3) * (np.abs(DF["zscore_erps2"]) < 3)]
+
+    
+    DF.dropna(inplace = True)
+    DF.reset_index(inplace = True)
+    print(DF)
+    DF["zscore_erps1"] = DF.groupby(["L", "N", "S"])["rmse_erps1"].apply(lambda x: (x - x.mean())/x.std())
+    DF["zscore_erps2"] = DF.groupby(["L", "N", "S"])["rmse_erps2"].apply(lambda x: (x - x.mean())/x.std())
+    DF = DF[(np.abs(DF["zscore_erps1"]) < 3) | (np.abs(DF["zscore_erps2"]) < 3)]
+    print(DF)
+    
+    #print( DF.groupby(["L", "N", "S"]).mean() )
+    
+    # erp stats
+    results1 = DF.groupby(["L", "N", "S"]).mean().rmse_erps1.values.reshape((3,3,3))
+    results2 = DF.groupby(["L", "N", "S"]).mean().rmse_erps2.values.reshape((3,3,3))
+    results1_stdev = DF.groupby(["L", "N", "S"]).std().rmse_erps1.values.reshape((3,3,3))
+    results2_stdev = DF.groupby(["L", "N", "S"]).std().rmse_erps2.values.reshape((3,3,3))
+    
+    # ---- bar style ---- #
+    HATCH = ["", "//", '..']
+    
+    #cmap = cm.get_cmap('plasma')
+    #COLORS = [cmap(0.1), cmap(0.5), cmap(0.9)]
+    
+    COLORS = ["turquoise", "cornflowerblue", "orchid"]
+    
+    width = 1.0
+    # ------------------- #
+
+
+    #fig = plt.figure(figsize = plt.figaspect(0.3))
+    fig, ax = plt.subplots(2,3,figsize = (10,4), sharey='row', sharex=True)
+
+    if minmax_erps1 is None: minmax_erps1 = [0, np.nanmax(results1)]
+    if minmax_erps2 is None: minmax_erps2 = [0, np.nanmax(results2)] 
+    ax[0,0].set_ylim(minmax_erps1[0], minmax_erps1[1])
+    ax[1,0].set_ylim(minmax_erps2[0], minmax_erps2[1])
+
+  
+        
+    for TYPE in range(2):
+        results = results1 if TYPE == 0 else results2
+        results_stdev = results1_stdev if TYPE == 0 else results2_stdev
+
+        for LL, LENGTHSCALE in enumerate(lengthscale_list):
+
+            #ax = fig.add_subplot(1,3,LL+1)
+
+            tmp = []
+            # choose num. observations
+            for OO, numObs in enumerate(numObs_list):
+                
+                # choose S2 (and S3) resolution
+                for SS, s2resolution in enumerate(s2res_list):
+                    
+                    label = int(s2resolution) if OO == 0 else None
+                    if errbars:
+                        ax[TYPE, LL].bar(numObs + (SS - 1)*1.25*width, results[LL,OO,SS], width,\
+                                     yerr = results_stdev[LL,OO,SS], capsize = 4, ecolor = "orange",\
+                                     error_kw={"elinewidth":2.0}, \
+                                     label = label, color = COLORS[SS], hatch = HATCH[SS]) # rgba[SS])   
+                    else:
+                        ax[TYPE, LL].bar(numObs + (SS - 1)*1.25*width, results[LL,OO,SS], width,\
+                                     label = label, color = COLORS[SS], hatch = HATCH[SS]) # rgba[SS])
+
+            ax[TYPE, LL].set_xticks(numObs_list)
+
+            if TYPE == 0:
+                ax[TYPE, LL].set_title("lengthscale {:d}".format(int(LENGTHSCALE)),  y = 1.0)
+            else:
+                ax[TYPE, LL].set_xlabel("# ERP obs")
+
+            if LL == 0:
+                LAB = "ERP(S1)" if TYPE == 0 else "ERP(S2)"
+                ax[TYPE, LL].set_ylabel(LAB + " av. RMSE")
+
+            ax[TYPE, LL].set_yticks( [tick for tick in ax[TYPE, LL].get_yticks()] )
+
+            #if TYPE == 1 and LL == 1: ax[TYPE, LL].legend(title = "$\Delta$S2", ncol = len(s2res_list))
+
+    #plt.suptitle(title, y = 1.0)
+    handles, labels = ax[TYPE,LL].get_legend_handles_labels()
+    #fig.legend(handles, labels, loc='center', title = "$\Delta$S2", ncol = len(s2res_list))
+    leg = fig.legend(handles, labels, loc='right', title = "$\Delta$S2", \
+                     bbox_to_anchor=(0.665, 1.02), ncol = 3) #, prop={'size':12})
+    legend_title_left(leg)
+    plt.tight_layout()
+    plt.show()
+    
+    return minmax_erps1, minmax_erps2
+
+
+
+def main(args):
+    """Quantitative validation of the technique."""
+
+    filename = args.filename
+
+    X = hu.getDataset(filename, "mesh", "X")
+    Tri = hu.getDataset(filename, "mesh", "Tri")
+    Q = hu.getDataset(filename, "mesh", "Q")
+    V = hu.getDataset(filename, "mesh", "V")
+    A = V[0:X.shape[0], 1:33]/Q[1:33]
+
+    if args.run:
+        # loop over all validation variables: field correlation lengthscale, num ERP obs, S2(S3) resolution
+
+        # how many samples to take
+        lengthscale_samples = 5
+        numObs_samples = 5
+
+        # what variations to use
+        lengthscale_list = [10, 20, 30]
+        numObs_list = [5, 10, 15]
+        s2res_list = [5, 20, 35]
+
+        num = 24
+        PHI = V[:, 0:num]
+        newQ = Q[0:num]
+        iterations = 2000
+
+        RUNS = lengthscale_samples * numObs_samples * len(lengthscale_list) * len(numObs_list) * len(s2res_list)
+        time_per_run = 0.0
+        print("RUNS:", RUNS)
+
+        # generate ERP field samples
+        run = 1
+        for LL, LENGTHSCALE in enumerate(lengthscale_list):
+            # choose number of ERP observations
+            for OO, numObs in enumerate(numObs_list):
+                # choose S2 (and S3) resolution
+                for SS, s2resolution in enumerate(s2res_list):
+                    S2list_erps1, S2list_erps2 = make_s2list(s2resolution)
+             
+                    #print("Lengthscale, #Obs, deltaS2:", LENGTHSCALE, numObs, s2resolution)
+
+                    # for recording all samples
+                    tmp1, tmp2 = [], []
+
+                    for l in range(lengthscale_samples):
+                        erps1, erps2, tau_out_true, APD_max_true = ERP_maps(X, Tri, Q, V, lengthscale = LENGTHSCALE)
+
+                        vert_idx_all = design_X(X, Tri, numObs, numObs_samples)
+                        for o in range(numObs_samples):
+
+                            # start timing
+                            start_time = time.time()
+                                    
+                            # -------- stan method -------- # START
+                            # seems to be printing the same result every time...
+                            if True:
+                                
+                                # doing same things with Latent GP method in STAN
+                                control = {} # {"adapt_delta": 0.99}
+
+                                with Suppressor():
+                                    tpred_stan, apred_stan, _ = stan_fit(vert_idx_all[o], erps1, erps2,\
+                                                                         S2list_erps1, S2list_erps2, s2resolution,\
+                                                                         newQ, PHI, X.shape[0], control = control, prnt = True, top_hat = True, ITER = iterations, verbose = False)
+
+                                    # predict ERP fields, from the posterior mean of the fields
+                                    erps1_pred, erps2_pred, _, _ = erp_predict(tpred_stan, apred_stan, A)
+
+                                # calculate errors
+                                rmse_erps1 = np.sqrt( ((erps1_pred - erps1)**2).mean() )
+                                rmse_erps2 = np.sqrt( ((erps2_pred - erps2)**2).mean() )
+
+                                # record results
+                                with open(args.valfile, "a") as myfile:
+                                    myfile.write("{:d} {:1.1f} {:1.1f} {:1.1f} {:f} {:f}\n"\
+                                                 .format(run, LENGTHSCALE, numObs, s2resolution, rmse_erps1, rmse_erps2))
+
+                            # -------- stan method -------- # END
+                            
+                            
+                            # update average time
+                            iter_time = time.time() - start_time
+                            time_per_run = time_per_run + (iter_time - time_per_run) / run
+                            print("Iteration {:d} took {:1.1f} sec (average {:1.1f} sec), approx. {:2.2f} hours left     ".format(run, iter_time, time_per_run, (RUNS - run)*time_per_run/60**2), end= "\r")
+                            run = run + 1
+   
+
+    if args.plot == True:
+        valData = pd.read_csv(args.valfile, names = ("L", "N", "S", "rmse_erps1", "rmse_erps2"), sep = " ")
+        minmax_erps1_lgp, minmax_erps2_lgp = validation_plots(valData, errbars = False)
+
+
+    return
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description = "Generate the simulation files.", epilog = "Run script from folder containing the hdf5 file.")
+    parser.add_argument("--filename", required = True, help = "Name of hdf5 file containing the high resolution mesh.")
+
+    parser.add_argument("--valfile", required = True, help = "Name of validation results file (will be appened to).")
+
+    parser.add_argument("--run", action = "store_true", default = False, help = "Run validation.")
+    parser.add_argument("--plot", action = "store_true", default = False, help = "Plot validation.")
+
+    args = parser.parse_args()
+
+    main(args)
