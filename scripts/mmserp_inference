@@ -101,10 +101,24 @@ def main(args):
 
             group = "sim_results/" + args.params + "/"+ args.pacesite + "/600"        
 
+            ans = input("Choose APD color limits from another group? Yes/yes [No]: ")
+        
+            if ans in ["Yes", "yes"]:
+                gname = input("Type group name: ")
+                gname = "sim_results/" + gname + "/"+ args.pacesite + "/600"
+            else:
+                gname = None
+
             for res in ["LAT", "APD", "APD20"]:
+
+                if gname is not None:
+                    other_data = hu.getDataset(filename, gname, res)
+                    clim = [np.min(other_data), np.max(other_data)]
+                else:
+                    clim = None
                 
                 data = hu.getDataset(filename, group, res)
-                plot_field_and_points(X, Tri, data, points = None, points_scalars = None, title = res, cmap = tb_cmap).save_graphic(res + ".pdf")
+                plot_field_and_points(X, Tri, data, points = None, points_scalars = None, clim = clim, title = res, cmap = tb_cmap).save_graphic(res + ".pdf")
         
         else:
             print("Specify --pacesite to make these plots")
@@ -228,7 +242,7 @@ if __name__ == "__main__":
     parser.add_argument("--num", type = int, default = 0, help = "Number of observation locations.")
 
     parser.add_argument("--plotGroundTruth", action = "store_true", default = False, help = "Create plots of the ground truth.")
-    parser.add_argument("--plotAPD", action = "store_true", default = False, help = "Create plots of the ground truth.")
+    parser.add_argument("--plotAPD", action = "store_true", default = False, help = "Create plots of simulated APD for chosen parameters.")
     parser.add_argument("--pacesite", default = "", help = "Pacesite, used to extract results of atrial simulation from HDF5.")
 
     parser.add_argument("--inference", action = "store_true", default = False, help = "Do inference.")

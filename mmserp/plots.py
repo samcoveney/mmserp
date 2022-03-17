@@ -108,7 +108,7 @@ def plot_field_and_points(X, Tri, scalars = None, cmap = "jet", clim = None, tit
         if points is not None:
             if (points_scalars is not None):
                 plotter.add_points(plt_points.copy(), render_points_as_spheres = True, scalars = points_scalars,\
-                               clim = clim, cmap = cmap, point_size = points_size, above_color = above_color)
+                               clim = clim, cmap = cmap, point_size = points_size, scalar_bar_args = sargs)
             else:
                 plotter.add_points(plt_points, render_points_as_spheres = True, point_size = points_size, color = "black")
 

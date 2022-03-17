@@ -39,6 +39,9 @@ def main(args):
     tau_in = 0.05
     tau_open = 120
 
+    # default group name
+    gname = "params"
+
     # create ERP parameter fields
     if args.fields == "ERP":    
 

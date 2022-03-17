@@ -142,6 +142,7 @@ if __name__ == "__main__":
     parser.add_argument("--holes", default = 5, type = int, help = "Number of topological holes in the manifold.")
     parser.add_argument("--layers", default = 5, type = int, help = "Number of layers of elements during mesh extension.")
     parser.add_argument("--eigs", action = "store_true", default = False, help = "Solve eigenproblem for new triangulation.")
+    parser.add_argument("--numeigs", type = int, default = 64, help = "Number of eigenvectors to calculate.")
 
     args = parser.parse_args()
 

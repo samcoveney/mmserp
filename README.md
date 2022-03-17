@@ -1,6 +1,27 @@
 # README
 
-This directory contains a number of scripts for taking a UAC mesh, creating simulaiton files, and extracting simulation results.
+You will need openCARP installed. As for Python, dependancies will reveal themselves when attempting to run code.
+
+
+## Installation
+
+Firstly, compile the stan programs in the directory "stanmodels" by calling `python <filename>.py`.
+Then move the resulting <filename>.pkl files to the mmserp/data directory.
+
+Then install as with `python setup.py install`
+
+
+## Mesh to data storage
+
+To keep everything organized, HDF5 files are used.
+
+The first task is to transfer a simulation ready mesh to a new HDF5 file.
+
+Take a look at the script `mmserp_meshToHDF5`. It assumes that the mesh is stored in some specific files, that can be inferred by reading the code in the script. When you have your mesh stored in this way, call this script.
+
+TODO: remove LGE dependancy in the storage, not needed
+
+TODO: how on earth to extract the data from these? https://zenodo.org/record/5801337#
 
 
 ## Processing UAC mesh data
