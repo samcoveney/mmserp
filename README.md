@@ -24,17 +24,9 @@ The rest of this README explains how to use these scripts.
 
 HDF5 files are use to keep everything organized.
 
-The first task is to transfer a simulation ready mesh to a new HDF5 file.
-
-Take a look at the script `mmserp_meshToHDF5`. It assumes that the mesh is stored in some specific files, that can be inferred by reading the code in the script. When you have your mesh stored in this way, call this script.
-
-TODO: remove LGE dependancy in `mmserp_meshToHDF5` and `mmserp_viewMesh`
-
-TODO: rewrite to extract data from these datasets https://zenodo.org/record/5801337#
-
-The script `mmserp_browseHDF5` can be used to graphically browse the HDF5 contents in the command line.
-
-The script `mmserp_duplicateHDF5` can be used to create a new HDF5 file from an existing one, copying across only the mesh data.
+* `mmserp_meshToHDF5` - save a mesh into a new HDF5 file
+* `mmserp_browseHDF5` - graphically browse the HDF5 file 
+* `mmserp_duplicateHDF5` - create a new HDF5 file, containing only mesh related data, from an existing HDF5 file (requires that the eigenproblem has been solved)
 
 
 ## Solving the Laplacian eigenproblem
@@ -49,7 +41,7 @@ The calibration utilizes [Gaussian Process Manifold Interpolation (GPMI)](https:
 * `mmserp_viewEigs` - plot the mesh colored by a specified eigenvector
 
 
-## Running simulations
+## Running atrial simulations
 
 * `mmserp_generateFields` - generate and store random spatially-correlated parameter fields
 * `mmserp_createStimulus` - define a set of vertices to use for stimulus in simulations, and save them with a specific name

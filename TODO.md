@@ -1,7 +1,6 @@
 # TODO
 
 
-* [ ] create new inference notebooks
-* [ ] update README with instructions for creating the stanmodel.pkl files before installing
-* [ ] can we generate the mean and covariance of the STAN results, since the hyperparameters are not fixed?
-* [ ] make sure thinning and sampling is done okay, including which sample we take for calculating things
+* remove LGE dependancy in `mmserp_meshToHDF5` and `mmserp_viewMesh`
+* rewrite to extract meshes from these datasets https://zenodo.org/record/5801337#
+
