@@ -64,7 +64,7 @@ def validation_plots(DF, errbars = True, minmax_erps1 = None, minmax_erps2 = Non
         print(DF)
         DF["zscore_erps1"] = DF.groupby(["L", "N", "S"])["rmse_erps1"].apply(lambda x: (x - x.median())/x.mad())
         DF["zscore_erps2"] = DF.groupby(["L", "N", "S"])["rmse_erps2"].apply(lambda x: (x - x.median())/x.mad())
-        DF = DF[(np.abs(DF["zscore_erps1"]) < 3) & (np.abs(DF["zscore_erps2"]) < 3)]
+        DF = DF[(np.abs(DF["zscore_erps1"]) < 4) & (np.abs(DF["zscore_erps2"]) < 4)]
         print(DF)
     
     #print( DF.groupby(["L", "N", "S"]).mean() )
@@ -83,6 +83,7 @@ def validation_plots(DF, errbars = True, minmax_erps1 = None, minmax_erps2 = Non
     #COLORS = [cmap(0.1), cmap(0.5), cmap(0.9)]
     
     COLORS = ["turquoise", "cornflowerblue", "orchid"]
+    LINES = ["-", "--", ":"]
     
     width = 1.0
     # ------------------- #
@@ -114,18 +115,8 @@ def validation_plots(DF, errbars = True, minmax_erps1 = None, minmax_erps2 = Non
             for SS, s2resolution in enumerate(s2res_list):
                 
                 label = int(s2resolution) #if OO == 0 else None
-                if errbars:
-                    #ax[TYPE, LL].bar(numObs + (SS - 1)*1.25*width, results[LL,OO,SS], width,\
-                    #             yerr = results_stdev[LL,OO,SS], capsize = 4, ecolor = "orange",\
-                    #             error_kw={"elinewidth":2.0}, \
-                    #             label = label, color = COLORS[SS], hatch = HATCH[SS]) # rgba[SS])   
-                    #ax[TYPE, LL].plot(numObs_list, results[LL,:,SS], \
-                    #             label = label, color = COLORS[SS]) # rgba[SS])   
-                    ax[TYPE, LL].errorbar(numObs_list + (SS - 1)*1.25*width, results[LL,:,SS], results_stdev[LL,:,SS], \
-                                 label = label, color = COLORS[SS]) # rgba[SS])   
-                else:
-                    ax[TYPE, LL].bar(numObs + (SS - 1)*1.25*width, results[LL,OO,SS], width,\
-                                 label = label, color = COLORS[SS], hatch = HATCH[SS]) # rgba[SS])
+                ax[TYPE, LL].errorbar(numObs_list + (SS - 1)*1.25*width, results[LL,:,SS], results_stdev[LL,:,SS], \
+                             label = label, color = COLORS[SS], linestyle = LINES[SS]) # rgba[SS])   
 
             ax[TYPE, LL].set_xticks(numObs_list)
 
@@ -150,9 +141,9 @@ def validation_plots(DF, errbars = True, minmax_erps1 = None, minmax_erps2 = Non
     legend_title_left(leg)
     plt.tight_layout()
     #plt.show()
-    fig.savefig('quant_val.png',
+    fig.savefig('quant_val.pdf',
                 dpi=300, 
-                format='png', 
+                format='pdf', 
                 bbox_extra_artists=(leg,),
                 bbox_inches='tight')
     

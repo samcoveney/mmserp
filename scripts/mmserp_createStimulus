@@ -37,7 +37,6 @@ def view_mesh(filename):
 
     # UAC and LGE
     UAC = hu.getDataset(filename, "sim_mesh", "UAC").astype(np.float32)
-    LGE = hu.getDataset(filename, "sim_mesh", "LGE_norm").astype(np.float32)
 
     # plot mesh, colored by stuff
     plotter = BackgroundPlotter(shape = (1,3), auto_update = True)
