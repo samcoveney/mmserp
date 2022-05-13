@@ -70,10 +70,11 @@ def validation_plots(DF, errbars = True, minmax_erps1 = None, minmax_erps2 = Non
     #print( DF.groupby(["L", "N", "S"]).mean() )
     
     # erp stats
-    results1 = DF.groupby(["L", "N", "S"]).mean().rmse_erps1.values.reshape((3,3,3))
-    results2 = DF.groupby(["L", "N", "S"]).mean().rmse_erps2.values.reshape((3,3,3))
-    results1_stdev = DF.groupby(["L", "N", "S"]).std().rmse_erps1.values.reshape((3,3,3))
-    results2_stdev = DF.groupby(["L", "N", "S"]).std().rmse_erps2.values.reshape((3,3,3))
+    shape = (len(lengthscale_list), len(numObs_list), len(s2res_list))
+    results1 = DF.groupby(["L", "N", "S"]).mean().rmse_erps1.values.reshape(shape)
+    results2 = DF.groupby(["L", "N", "S"]).mean().rmse_erps2.values.reshape(shape)
+    results1_stdev = DF.groupby(["L", "N", "S"]).std().rmse_erps1.values.reshape(shape)
+    results2_stdev = DF.groupby(["L", "N", "S"]).std().rmse_erps2.values.reshape(shape)
     
     # ---- bar style ---- #
     HATCH = ["", "//", '..']
@@ -107,20 +108,24 @@ def validation_plots(DF, errbars = True, minmax_erps1 = None, minmax_erps2 = Non
 
             tmp = []
             # choose num. observations
-            for OO, numObs in enumerate(numObs_list):
+            #for OO, numObs in enumerate(numObs_list):
                 
-                # choose S2 (and S3) resolution
-                for SS, s2resolution in enumerate(s2res_list):
-                    
-                    label = int(s2resolution) if OO == 0 else None
-                    if errbars:
-                        ax[TYPE, LL].bar(numObs + (SS - 1)*1.25*width, results[LL,OO,SS], width,\
-                                     yerr = results_stdev[LL,OO,SS], capsize = 4, ecolor = "orange",\
-                                     error_kw={"elinewidth":2.0}, \
-                                     label = label, color = COLORS[SS], hatch = HATCH[SS]) # rgba[SS])   
-                    else:
-                        ax[TYPE, LL].bar(numObs + (SS - 1)*1.25*width, results[LL,OO,SS], width,\
-                                     label = label, color = COLORS[SS], hatch = HATCH[SS]) # rgba[SS])
+            # choose S2 (and S3) resolution
+            for SS, s2resolution in enumerate(s2res_list):
+                
+                label = int(s2resolution) #if OO == 0 else None
+                if errbars:
+                    #ax[TYPE, LL].bar(numObs + (SS - 1)*1.25*width, results[LL,OO,SS], width,\
+                    #             yerr = results_stdev[LL,OO,SS], capsize = 4, ecolor = "orange",\
+                    #             error_kw={"elinewidth":2.0}, \
+                    #             label = label, color = COLORS[SS], hatch = HATCH[SS]) # rgba[SS])   
+                    #ax[TYPE, LL].plot(numObs_list, results[LL,:,SS], \
+                    #             label = label, color = COLORS[SS]) # rgba[SS])   
+                    ax[TYPE, LL].errorbar(numObs_list + (SS - 1)*1.25*width, results[LL,:,SS], results_stdev[LL,:,SS], \
+                                 label = label, color = COLORS[SS]) # rgba[SS])   
+                else:
+                    ax[TYPE, LL].bar(numObs + (SS - 1)*1.25*width, results[LL,OO,SS], width,\
+                                 label = label, color = COLORS[SS], hatch = HATCH[SS]) # rgba[SS])
 
             ax[TYPE, LL].set_xticks(numObs_list)
 
@@ -170,18 +175,18 @@ def main(args):
         # loop over all validation variables: field correlation lengthscale, num ERP obs, S2(S3) resolution
 
         # how many samples to take
-        lengthscale_samples = 5
-        numObs_samples = 5
+        lengthscale_samples = 30
+        numObs_samples = 10
 
         # what variations to use
-        lengthscale_list = [10, 20, 30]
-        numObs_list = [5, 10, 15]
-        s2res_list = [5, 20, 35]
+        lengthscale_list = [10, 20, 40]
+        numObs_list = [5, 10, 20, 40, 80]
+        s2res_list = [10, 20, 40]
 
-        num = 24
+        num = 32
         PHI = V[:, 0:num]
         newQ = Q[0:num]
-        iterations = 2000
+        iterations = 5000
 
         RUNS = lengthscale_samples * numObs_samples * len(lengthscale_list) * len(numObs_list) * len(s2res_list)
         time_per_run = 0.0
@@ -189,6 +194,8 @@ def main(args):
 
         # generate ERP field samples
         run = 1
+        # start timing
+        start_time = time.time()
         for LL, LENGTHSCALE in enumerate(lengthscale_list):
             # choose number of ERP observations
             for OO, numObs in enumerate(numObs_list):
@@ -206,9 +213,6 @@ def main(args):
 
                         vert_idx_all = design_X(X, Tri, numObs, numObs_samples)
                         for o in range(numObs_samples):
-
-                            # start timing
-                            start_time = time.time()
                                     
                             # -------- stan method -------- # START
                             # seems to be printing the same result every time...
@@ -220,7 +224,9 @@ def main(args):
                                 with Suppressor():
                                     tpred_stan, apred_stan, _ = stan_fit(vert_idx_all[o], erps1, erps2,\
                                                                          S2list_erps1, S2list_erps2, s2resolution,\
-                                                                         newQ, PHI, X.shape[0], control = control, prnt = True, top_hat = True, ITER = iterations, verbose = False)
+                                                                         newQ, PHI, X.shape[0], control = control,\
+                                                                         prnt = True, top_hat = True, ITER = iterations, verbose = False,\
+                                                                         optimize = True)
 
                                     # predict ERP fields, from the posterior mean of the fields
                                     erps1_pred, erps2_pred, _, _ = erp_predict(tpred_stan, apred_stan, A)
@@ -240,13 +246,14 @@ def main(args):
                             # update average time
                             iter_time = time.time() - start_time
                             time_per_run = time_per_run + (iter_time - time_per_run) / run
-                            print("Iteration {:d} took {:1.1f} sec (average {:1.1f} sec), approx. {:2.2f} hours left     ".format(run, iter_time, time_per_run, (RUNS - run)*time_per_run/60**2), end= "\r")
+                            print("Iteration {:d} took {:1.1f} sec (average {:1.1f} sec), approx. {:2.2f} minutes left     ".format(run, iter_time, time_per_run, (RUNS - run)*time_per_run/60), end= "\r")
                             run = run + 1
+                            start_time = time.time()
    
 
     if args.plot == True:
         valData = pd.read_csv(args.valfile, names = ("L", "N", "S", "rmse_erps1", "rmse_erps2"), sep = " ")
-        minmax_erps1_lgp, minmax_erps2_lgp = validation_plots(valData, errbars = False)
+        minmax_erps1_lgp, minmax_erps2_lgp = validation_plots(valData, True) #, [0, 40], [0, 30])
 
 
     return

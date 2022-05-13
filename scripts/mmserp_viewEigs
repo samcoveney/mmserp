@@ -4,6 +4,8 @@
     view_UAC_mesh.py
 
     View the simulation mesh with UAC and LGE scores.
+
+    Also reports what a unit of kernel lengthscale is approx equal to in mm.
 """
 
 import sys
@@ -26,6 +28,11 @@ def view_mesh(filename, evnum):
     V = hu.getDataset(filename, "mesh", "V")
     title = "eigenvector"
     scalars = V[0:X.shape[0],evnum]
+
+    # approximate average edge length
+    av_edge = X[Tri[:,0:2]]
+    av_edge_length = np.linalg.norm(av_edge[:,1,:] - av_edge[:,0,:], axis = 1).mean()
+    print("1 unit of kernel lengthscale approximately {:2.2f}mm:".format(av_edge_length/10**3))
 
     plot_fields(X, Tri, [scalars], ["eigvec " + str(evnum) ]).show()
 

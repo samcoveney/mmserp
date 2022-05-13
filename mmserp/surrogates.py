@@ -75,7 +75,6 @@ def surrogate_ERP(tau_out, APD_max):
     ERPS1 = np.dot(coeffs_ERPS1, ERP_basis)
     ERPS2 = np.dot(coeffs_ERPS2, ERP_basis)
 
-    
     if tau_out.ndim == 0:
         if ERPS1 > 285: ERPS1, ERPS2 = np.nan, np.nan
     else:
@@ -171,8 +170,12 @@ def scale_range(field, MIN, MAX):
     
 
 # create maps of ERP over the atrium
-def ERP_maps(X, Tri, Q, V, lengthscale):
+def ERP_maps(X, Tri, Q, V, lengthscale, seed = None):
     """Create random draws of ERP(S1) and ERP(S2) maps"""
+
+    # seed for reproduceability
+    if seed is not None:
+        np.random.seed(seed)
     
     # MINMAX of features
     tau_out_minmax = [1.0, 30.0]

@@ -21,7 +21,7 @@ coeffs_ERPS1 = surrogate_data["coeffs_ERPS1"]
 coeffs_ERPS2 = surrogate_data["coeffs_ERPS2"]
 
 
-def SD_RBF(Q, rho, alpha):
+def SD_RBF(Q, rho, alpha, scale_factor):
     """Spectral Density for RBF.
     
     Depends on dimension D, which appears as D/2, so neglected here.
@@ -29,7 +29,7 @@ def SD_RBF(Q, rho, alpha):
 
     """
     
-    SD = alpha**2 * (2.0 * np.pi * rho**2) * np.exp( -2 * np.pi**2 * rho**2 * Q );
+    SD = alpha**2 * scale_factor * (2.0 * np.pi * rho**2) * np.exp( -2 * np.pi**2 * rho**2 * Q );
 
     return SD
 
@@ -102,7 +102,7 @@ def design_X(X, Tri, num, keep, NUM_designs = 100000):
 
 
 
-def stan_fit(vert_idx, erps1, erps2, S2list_erps1, S2list_erps2, deltaS2, newQ, PHI, numX, prnt = False, top_hat = True, ITER = 2000, control = {}, verbose = True):
+def stan_fit(vert_idx, erps1, erps2, S2list_erps1, S2list_erps2, deltaS2, newQ, PHI, numX, prnt = False, top_hat = True, ITER = 2000, control = {}, verbose = True, optimize = False):
     """Function for the whole stan fitting process."""
 
     if top_hat:
@@ -186,12 +186,24 @@ def stan_fit(vert_idx, erps1, erps2, S2list_erps1, S2list_erps2, deltaS2, newQ, 
                   'surrogate2': coeffs_ERPS2}
 
 
-    fit = sm.sampling(data=ERP_dat, iter=ITER, chains=4, control = control, thin = 10, verbose = verbose)
-
-    if prnt: print(fit)
+    if not optimize:  # sampling
+        fit = sm.sampling(data=ERP_dat, iter=ITER, chains=8, control = control, thin = int(2*ITER/100), verbose = verbose)
+        if prnt: print(fit)
+        samples = fit.extract()
+    else:
+        # need a while loop to restart if failed
+        while True:
+            try:
+                # NOTE: I should choose iter for optimization carefully
+                samples = sm.optimizing(data=ERP_dat, verbose = verbose, iter=ITER)
+                if prnt: print(samples)
+                break
+            except RuntimeError as e:
+                pass
+                
     
-    samples = fit.extract()
-    print("sample size:", samples['beta1'].shape)
+    #samples = fit.extract()
+    #print("sample size:", samples['beta1'].shape)
     
     with open('samples.pkl', 'wb') as f:
         pickle.dump(samples, f)
@@ -201,11 +213,22 @@ def stan_fit(vert_idx, erps1, erps2, S2list_erps1, S2list_erps2, deltaS2, newQ, 
     rho1, rho2 = samples['rho1'], samples['rho2']
     alpha1, alpha2 = samples['alpha1'], samples['alpha2']
 
+    # if optimization mode, need to reshape these
+    if optimize:
+        beta1, beta2 = beta1.reshape(1, -1), beta2.reshape(1, -1)
+        mean1, mean2 = np.array([mean1]), np.array([mean2])
+        rho1, rho2 = np.array([rho1]), np.array([rho2])
+        alpha1, alpha2 = np.array([alpha1]), np.array([alpha2])
+    
+    #print(beta1, mean1)
+    #import IPython
+    #IPython.embed()
     
     # for ease in validation loop, I'll calculate the posterior mean here...
     # ----------------------------------------------------------------------
     
     newPhi = PHI[0:numX].T.copy()
+    scale_factor = 1.0 / np.abs(PHI[0,0])
     
     f1 = np.zeros(numX)
     f2 = np.zeros_like(f1)
@@ -213,8 +236,8 @@ def stan_fit(vert_idx, erps1, erps2, S2list_erps1, S2list_erps2, deltaS2, newQ, 
     count = 1
     for i in range(0, beta1.shape[0]): # use all samples remaining (after discard warm-up and thinning)
 
-        newf1 = mean1[i] + ( beta1[i] * np.sqrt(SD_RBF(newQ, rho1[i], alpha1[i])) ).dot(newPhi)
-        newf2 = mean2[i] + ( beta2[i] * np.sqrt(SD_RBF(newQ, rho2[i], alpha2[i])) ).dot(newPhi)
+        newf1 = mean1[i] + ( beta1[i] * np.sqrt(SD_RBF(newQ, rho1[i], alpha1[i], scale_factor)) ).dot(newPhi)
+        newf2 = mean2[i] + ( beta2[i] * np.sqrt(SD_RBF(newQ, rho2[i], alpha2[i], scale_factor)) ).dot(newPhi)
 
         f1 = f1 + (newf1 - f1) / count
         f2 = f2 + (newf2 - f2) / count
@@ -227,12 +250,21 @@ def stan_fit(vert_idx, erps1, erps2, S2list_erps1, S2list_erps2, deltaS2, newQ, 
 def samples_stats(samples, newQ, PHI, numX, A):
     """Calculate statistics of fields from the samples"""
 
-    print("Calculating stats of fields from the samples")
-
     beta1, beta2 = samples['beta1'], samples['beta2']
     mean1, mean2 = samples['mean1'], samples['mean2']
     rho1, rho2 = samples['rho1'], samples['rho2']
     alpha1, alpha2 = samples['alpha1'], samples['alpha2'] 
+
+    # assume optimization mode based on ndim
+    optimize = True if beta1.ndim == 1 else False
+    # if optimization mode, need to reshape these
+    if optimize:
+        beta1, beta2 = beta1.reshape(1, -1), beta2.reshape(1, -1)
+        mean1, mean2 = np.array([mean1]), np.array([mean2])
+        rho1, rho2 = np.array([rho1]), np.array([rho2])
+        alpha1, alpha2 = np.array([alpha1]), np.array([alpha2])
+
+    print("Calculating stats of fields from {:d} samples".format(beta1.shape[0]))
 
     # Below, I have done this sampling to get the mean and stdev of the posterior at each point:
     # stan samples -> parameter fields samples -> erp samples -> erp mean and standard deviation.
@@ -248,9 +280,10 @@ def samples_stats(samples, newQ, PHI, numX, A):
     ef2 = np.zeros_like(f1)
     es1 = np.zeros_like(f1)
     es2 = np.zeros_like(f1)
-
+    
 
     newPhi = PHI[0:numX].T.copy()
+    scale_factor = 1.0 / np.abs(PHI[0,0])
     count = 1
     #numSamples = 100
     #for i in range(beta1.shape[0] - numSamples, beta1.shape[0]):
@@ -264,8 +297,8 @@ def samples_stats(samples, newQ, PHI, numX, A):
        
         # if I do this, do I want to calculate mean and variance of sanitized samples, or original samples?
         
-        newf1 = mean1[i] + ( beta1[i] * np.sqrt(SD_RBF(newQ, rho1[i], alpha1[i])) ).dot(newPhi)
-        newf2 = mean2[i] + ( beta2[i] * np.sqrt(SD_RBF(newQ, rho2[i], alpha2[i])) ).dot(newPhi)
+        newf1 = mean1[i] + ( beta1[i] * np.sqrt(SD_RBF(newQ, rho1[i], alpha1[i], scale_factor)) ).dot(newPhi)
+        newf2 = mean2[i] + ( beta2[i] * np.sqrt(SD_RBF(newQ, rho2[i], alpha2[i], scale_factor)) ).dot(newPhi)
         
         new_ef1, new_ef2, newf1, newf2 = erp_predict(newf1, newf2, A) # note: sanitizes
         

@@ -41,10 +41,17 @@ def main(args):
     tau_in = 0.05
     tau_open = 120
 
+    # seed for reproduceability
+    seed = args.seed
+
     # create observation design
     if args.obs:
         if args.num > 0:
 
+            # seed for reproduceability
+            if seed is not None:
+                np.random.seed(seed)
+ 
             # observation locations
             vert_idx = design_X(X, Tri, num = args.num, keep = 1).flatten()
             plot_field_and_points(X, Tri, points = X[vert_idx], points_size = 40, alpha = 0.8).show()
@@ -145,11 +152,11 @@ def main(args):
         num = args.basis
         PHI = V[:, 0:num]
         newQ = Q[0:num]
-        iterations = 2000
+        iterations = args.iter 
 
         # get posterior samples
-        control = {} # {"adapt_delta": 0.99}
-        _, _, samples = stan_fit(vert_idx, erps1, erps2, S2list_erps1, S2list_erps2, deltaS2, newQ, PHI, X.shape[0], control = control, prnt = True, top_hat = True, ITER = iterations)
+        control = {"adapt_delta": 0.99}
+        _, _, samples = stan_fit(vert_idx, erps1, erps2, S2list_erps1, S2list_erps2, deltaS2, newQ, PHI, X.shape[0], control = control, prnt = True, top_hat = True, ITER = iterations, optimize = False)
 
         # statistics from samples
         f1, f2, s1, s2, ef1, ef2, es1, es2 = samples_stats(samples, newQ, PHI, X.shape[0], A)
@@ -200,6 +207,11 @@ def main(args):
         es1 = hu.getDataset(filename, gname, "ERPS1_stdev")
         es2 = hu.getDataset(filename, gname, "ERPS2_stdev")
 
+        # check NaNs...
+        #print(np.sum(np.isnan(s1)))
+        #print(np.sum(np.isnan(s2)))
+        #print(np.sum(np.isnan(ef1)))
+        #print(np.sum(np.isnan(ef2)))
 
         # parameter fields
         # ----------------
@@ -208,10 +220,17 @@ def main(args):
         plot_field_and_points(X, Tri, f1, points = X[vert_idx], points_scalars = f1[vert_idx], title = "Tout", cmap = tb_cmap, clim = CLIM["tau_out"]).save_graphic("tauOut_pred.pdf")
         plot_field_and_points(X, Tri, f2, points = X[vert_idx], points_scalars = f2[vert_idx], title = "APDmax", cmap = tb_cmap, clim = CLIM["APD_max"]).save_graphic("APDmax_pred.pdf")
 
+        # plot the full parameter fields stdev
+        plot_field_and_points(X, Tri, s1, points = X[vert_idx], points_scalars = s1[vert_idx], title = "Tout", cmap = "inferno").save_graphic("tauOut_std.pdf")
+        plot_field_and_points(X, Tri, s2, points = X[vert_idx], points_scalars = s2[vert_idx], title = "APDmax", cmap = "inferno").save_graphic("APDmax_std.pdf")
+
         # plot the full ERP fields
         plot_field_and_points(X, Tri, ef1, points = X[vert_idx], points_scalars = ef1[vert_idx], title = "ERP(S1)", cmap = tb_cmap, clim = CLIM["ERPS1"]).save_graphic("ERPS1_pred.pdf")
         plot_field_and_points(X, Tri, ef2, points = X[vert_idx], points_scalars = ef2[vert_idx], title = "ERP(S2)", cmap = tb_cmap, clim = CLIM["ERPS2"]).save_graphic("ERPS2_pred.pdf")
 
+        # plot the full ERP fields stdev
+        plot_field_and_points(X, Tri, es1, points = X[vert_idx], points_scalars = es1[vert_idx], title = "ERP(S1)", cmap = "inferno").save_graphic("ERPS1_std.pdf")
+        plot_field_and_points(X, Tri, es2, points = X[vert_idx], points_scalars = es2[vert_idx], title = "ERP(S2)", cmap = "inferno").save_graphic("ERPS2_std.pdf")
 
         # ISE plots for ERP
         # -----------------
@@ -246,8 +265,11 @@ if __name__ == "__main__":
     parser.add_argument("--pacesite", default = "", help = "Pacesite, used to extract results of atrial simulation from HDF5.")
 
     parser.add_argument("--inference", action = "store_true", default = False, help = "Do inference.")
+    parser.add_argument("--iter", type = int, default = 2000, help = "Number of MCMC iterations per chain.")
     parser.add_argument("--basis", type = int, default = 24, help = "How many GPMI basis coefficients for each field.")
     parser.add_argument("--plotInferred", action = "store_true", default = False, help = "Plot inference results.")
+
+    parser.add_argument("--seed", required = False, default = None, type = int, help = "Seed for RNG for reproduceability.")
 
     args = parser.parse_args()
 

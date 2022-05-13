@@ -42,13 +42,16 @@ def main(args):
     # default group name
     gname = "params"
 
+    # seed for reproduceability
+    seed = args.seed
+
     # create ERP parameter fields
     if args.fields == "ERP":    
 
         print("Creating ERP parameter fields")
 
-        LENGTHSCALE = 20
-        erps1, erps2, tau_out_true, APD_max_true = ERP_maps(X, Tri, Q, V, lengthscale = LENGTHSCALE)
+        LENGTHSCALE = 20 
+        erps1, erps2, tau_out_true, APD_max_true = ERP_maps(X, Tri, Q, V, lengthscale = LENGTHSCALE, seed=seed)
         
         plots.plot_fields(X, Tri, fields = [tau_out_true, APD_max_true], titles = ["tau_out", "APD_max"], cmap = tb_cmap).show()
         
@@ -78,6 +81,10 @@ def main(args):
     if args.fields == "CV":
 
         print("Creating CV parameter fields")
+
+        # seed for reproduceability
+        if seed is not None:
+            np.random.seed(seed)
 
         CV_max_minmax  = [0.03, 0.13]
         LENGTHSCALE = 20
@@ -110,6 +117,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description = "Generate the simulation files.", epilog = "Run script from folder containing the hdf5 file.")
     parser.add_argument("--filename", required = True, help = "Name of hdf5 file containing the high resolution mesh.")
     parser.add_argument("--fields", required = True, choices = ["ERP", "CV"], help = "Which fields to generate.")
+    parser.add_argument("--seed", required = False, default = None, type = int, help = "Seed for RNG for reproduceability.")
     args = parser.parse_args()
 
     main(args)

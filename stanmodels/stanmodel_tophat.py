@@ -13,14 +13,14 @@ print('Using pystan {0}'.format(pystan.__version__))
 stancode = \
 """
 functions {
-  vector spectral_density(vector Q, real rho, real alpha) {
+  vector spectral_density(vector Q, real rho, real alpha, real scale_factor) {
 
     // NOTE: instead of supplying w = sqrt(Q) to SD function and using w^2 in SD expression, I just supply Q and use w^2 = Q
     // NOTE: including the GP amplitude in this function
     // NOTE: rbf spectral density included power Dimension / 2.0, but our dimension is 2, so ignoring this term
   
     int M = rows(Q);
-    vector[M] SD = alpha^2 * (2.0 * pi() * rho^2) * exp( -2 * pi()^2 * rho^2 * Q );
+    vector[M] SD = alpha^2 * scale_factor * (2.0 * pi() * rho^2) * exp( -2 * pi()^2 * rho^2 * Q );
     return SD;
   }
   real top_hat(vector y, vector psi, int N, real deltaS2, int num) {
@@ -94,11 +94,12 @@ model {
   vector[N] theta2;
   vector[2*N] psi;
   matrix[N,S] sbasis;
+  real scale_factor = 1.0 / fabs(eigen[1,1]);
   vector[N] tmp; // helper vector
   {
 
-    theta1 = eigen * (beta1 .* sqrt(spectral_density(Q, rho1, alpha1))) + mean1;
-    theta2 = eigen * (beta2 .* sqrt(spectral_density(Q, rho2, alpha2))) + mean2;
+    theta1 = eigen * (beta1 .* sqrt(spectral_density(Q, rho1, alpha1, scale_factor))) + mean1;
+    theta2 = eigen * (beta2 .* sqrt(spectral_density(Q, rho2, alpha2, scale_factor))) + mean2;
 
      // surrogate polynomial eigen i.e. (1, theta1, theta2, theta1*2, ... etc)
     for (n in 1:N) sbasis[n,1] = 1.0;
@@ -121,13 +122,12 @@ model {
   beta1 ~ std_normal();
   beta2 ~ std_normal();
   
-  // hyperparameter priors
-  rho1 ~ inv_gamma(1, 5);
-  rho2 ~ inv_gamma(1, 5);
+  // lengthscale priors
+  rho1 ~ inv_gamma(1.01, 20);
+  rho2 ~ inv_gamma(1.01, 20);
 
-  //alpha1 ~ std_normal();
+  // amplitude priors
   alpha1 ~ inv_gamma(1, 5);
-  //alpha2 ~ std_normal();
   alpha2 ~ inv_gamma(1, 5);
 
   // * implicitly use improper prior on mean1 and mean2 *
