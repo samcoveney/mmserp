@@ -127,8 +127,8 @@ model {
   rho2 ~ inv_gamma(1.01, 20);
 
   // amplitude priors
-  alpha1 ~ inv_gamma(1, 5);
-  alpha2 ~ inv_gamma(1, 5);
+  alpha1 ~ inv_gamma(1.01, 5);
+  alpha2 ~ inv_gamma(1.01, 5);
 
   // * implicitly use improper prior on mean1 and mean2 *
 

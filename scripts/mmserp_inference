@@ -123,9 +123,12 @@ def main(args):
                     clim = [np.min(other_data), np.max(other_data)]
                 else:
                     clim = None
-                
+
+                title = "APD90" if res == "APD" else res          
+
                 data = hu.getDataset(filename, group, res)
-                plot_field_and_points(X, Tri, data, points = None, points_scalars = None, clim = clim, title = res, cmap = tb_cmap).save_graphic(res + ".pdf")
+                plot_field_and_points(X, Tri, data, points = None, points_scalars = None, clim = clim, title = title, cmap = tb_cmap)\
+                  .save_graphic(res + "_" + args.params + ".pdf")
         
         else:
             print("Specify --pacesite to make these plots")
@@ -215,30 +218,34 @@ def main(args):
 
         # parameter fields
         # ----------------
+
+        ISE_cmap = "CMRmap_r"
+        ISE_cmap = colormap(plt.get_cmap(ISE_cmap), 0.0, 0.8)
         
         # plot the full parameter fields
         plot_field_and_points(X, Tri, f1, points = X[vert_idx], points_scalars = f1[vert_idx], title = "Tout", cmap = tb_cmap, clim = CLIM["tau_out"]).save_graphic("tauOut_pred.pdf")
         plot_field_and_points(X, Tri, f2, points = X[vert_idx], points_scalars = f2[vert_idx], title = "APDmax", cmap = tb_cmap, clim = CLIM["APD_max"]).save_graphic("APDmax_pred.pdf")
 
         # plot the full parameter fields stdev
-        plot_field_and_points(X, Tri, s1, points = X[vert_idx], points_scalars = s1[vert_idx], title = "Tout", cmap = "inferno").save_graphic("tauOut_std.pdf")
-        plot_field_and_points(X, Tri, s2, points = X[vert_idx], points_scalars = s2[vert_idx], title = "APDmax", cmap = "inferno").save_graphic("APDmax_std.pdf")
+        CLIM_STD = np.percentile(s1, [0, 100])
+        plot_field_and_points(X, Tri, s1, points = X[vert_idx], points_scalars = s1[vert_idx], title = "Tout", cmap = ISE_cmap, clim = CLIM_STD).save_graphic("tauOut_std.pdf")
+        CLIM_STD = np.percentile(s2, [0, 100])
+        plot_field_and_points(X, Tri, s2, points = X[vert_idx], points_scalars = s2[vert_idx], title = "APDmax", cmap = ISE_cmap, clim = CLIM_STD).save_graphic("APDmax_std.pdf")
 
         # plot the full ERP fields
         plot_field_and_points(X, Tri, ef1, points = X[vert_idx], points_scalars = ef1[vert_idx], title = "ERP(S1)", cmap = tb_cmap, clim = CLIM["ERPS1"]).save_graphic("ERPS1_pred.pdf")
         plot_field_and_points(X, Tri, ef2, points = X[vert_idx], points_scalars = ef2[vert_idx], title = "ERP(S2)", cmap = tb_cmap, clim = CLIM["ERPS2"]).save_graphic("ERPS2_pred.pdf")
 
         # plot the full ERP fields stdev
-        plot_field_and_points(X, Tri, es1, points = X[vert_idx], points_scalars = es1[vert_idx], title = "ERP(S1)", cmap = "inferno").save_graphic("ERPS1_std.pdf")
-        plot_field_and_points(X, Tri, es2, points = X[vert_idx], points_scalars = es2[vert_idx], title = "ERP(S2)", cmap = "inferno").save_graphic("ERPS2_std.pdf")
+        CLIM_STD = np.percentile(es1, [0, 100])
+        plot_field_and_points(X, Tri, es1, points = X[vert_idx], points_scalars = es1[vert_idx], title = "ERP(S1)", cmap = ISE_cmap, clim = CLIM_STD).save_graphic("ERPS1_std.pdf")
+        CLIM_STD = np.percentile(es2, [0, 100])
+        plot_field_and_points(X, Tri, es2, points = X[vert_idx], points_scalars = es2[vert_idx], title = "ERP(S2)", cmap = ISE_cmap, clim = CLIM_STD).save_graphic("ERPS2_std.pdf")
 
         # ISE plots for ERP
         # -----------------
 
         ISE_clim = [0.0,3]
-
-        ISE_cmap = "CMRmap_r"
-        ISE_cmap = colormap(plt.get_cmap(ISE_cmap), 0.0, 0.8)
 
         erps1_ISE_LGP = np.abs(ef1 - erps1) / (es1)
         plot_field_and_points(X, Tri, scalars = erps1_ISE_LGP, title = "ERP(S1)", cmap = ISE_cmap, clim = ISE_clim).save_graphic("ERPS1_ISE.pdf")

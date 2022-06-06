@@ -161,12 +161,13 @@ def stan_fit(vert_idx, erps1, erps2, S2list_erps1, S2list_erps2, deltaS2, newQ, 
     #PHI = V[:, 0:num]
     #newQ = Q[0:num]
 
+    # NOTE: new change: set number of sub-intervals to deltaS2
 
     if top_hat: # new top_hat llh
         ERP_dat = {'N': len(vertex), # account for 2x observation (two ERP) in the stan code
                   'y': np.hstack([y_erps1, y_erps2]),
                   'deltaS2': deltaS2, # 95% probability that true ERP is in bracket
-                  'num': 10, # sub-intervals for top-hat approximation
+                  'num': int(deltaS2), # sub-intervals for top-hat approximation
                   'M': PHI.shape[1],
                   'eigen': PHI[vertex],
                   'Q': newQ,

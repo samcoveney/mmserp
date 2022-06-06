@@ -6,20 +6,26 @@
     Take the simulation ready meshes (which have UAC and LGE) and package the data into a hdf5 file format.
 """
 
+import os.path
+import errno
+import argparse
 import numpy as np
 import pandas as pd
 
 import mmserp.hdf5utils as hu
 
-def main():
+def main(args):
 
-    # get filename
-    filename = ""
-    while filename == "":
-        filename = input("Type name of file (without extension): ")
-    filename += ".hdf5"
+    # check that files exist
+    if not os.path.exists(args.coord):
+        raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), args.coord)
+    if not os.path.exists(args.elem):
+        raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), args.elem)
+    if not os.path.exists(args.uac):
+        raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), args.uac)
 
     # create a new file
+    filename = args.filename
     hu.createHDF5(filename)
 
     # add mesh
@@ -27,37 +33,33 @@ def main():
     hu.createGroup(filename, "sim_mesh")
 
     # get nodes/vertices
-    X = np.loadtxt("Labelled.pts", delimiter = " ", skiprows = 1)
+    X = np.loadtxt(args.coord, delimiter = " ", skiprows = 1)
     hu.createDataset(filename, "sim_mesh", "X", data = X.astype(np.float32))
 
     # get faces/elems
-    Tri = pd.read_csv("Labelled.elem", header = None, names = ["type", "x", "y", "z", "label"], skiprows = 1, delimiter = " ")
+    Tri = pd.read_csv(args.elem, header = None, names = ["type", "x", "y", "z", "label"], skiprows = 1, delimiter = " ")
     Tri = Tri[["x", "y", "z"]].values
     hu.createDataset(filename, "sim_mesh", "Tri", data = Tri.astype(np.int32))
 
 
     # add UAC coordinates
     # -------------------
-    UAC = np.loadtxt("Labelled_Coords_2D_Rescaling_v3_C.pts", delimiter = " ", skiprows = 1)[:,0:2]
+    UAC = np.loadtxt(args.uac, delimiter = " ", skiprows = 1)[:,0:2]
     hu.createDataset(filename, "sim_mesh", "UAC", data = UAC.astype(np.float16))
-
-
-    # add normalized LGE scores
-    # -------------------------
-
-    LGE_raw = np.loadtxt("LGE_full2.dat")
-
-    LGE_info = np.loadtxt("prodThresholds.txt")
-    blood_pool_mean = LGE_info[2]
-    blood_pool_std = LGE_info[3]
-
-    LGE = (LGE_raw - blood_pool_mean) / blood_pool_std
-
-    hu.createDataset(filename, "sim_mesh", "LGE_norm", data = LGE.astype(np.float16))
 
     return
 
 
 if __name__ == "__main__":
-    main()
+
+    parser = argparse.ArgumentParser(description = "Transfer mesh data in white-space delimited text files to HDF5 file.")
+ 
+    parser.add_argument("--filename", required = True, help = "Name for new hdf5 file.")
+    parser.add_argument("--coord", required = True, help = "Name of text file containing vertex coordinates.")
+    parser.add_argument("--elem",  required = True, help = "Name of text file containing elements (faces).")
+    parser.add_argument("--uac",   required = True, help = "Name of text file containing Universal Atrial Coordinates.")
+
+    args = parser.parse_args()
+
+    main(args)
 

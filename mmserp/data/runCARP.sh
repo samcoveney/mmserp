@@ -148,7 +148,7 @@ TSHACT=0.7  # Threshold to evaluate DEPOLARISATION (i.e. LAT)
 TSHREP=0.1  # Threshold to evaluate REPOLARISATION 90%
 TSH50=0.5  # Threshold to evaluate REPOLARISATION 50%
 TSH30=0.7  # Threshold to evaluate REPOLARISATION 30%
-TSH20=0.8  # Threshold to evaluate REPOLARISATION 30%
+TSH20=0.8  # Threshold to evaluate REPOLARISATION 20%
 
 LATSSTRING1="-lats[0].measurand 0 -lats[0].all 1 -lats[0].method 1 -lats[0].mode 0 -lats[0].threshold ${TSHACT} -lats[0].ID tact_${TSHACT}"
 LATSSTRING2="-lats[1].measurand 0 -lats[1].all 1 -lats[1].method 1 -lats[1].mode 1 -lats[1].threshold ${TSHREP} -lats[1].ID trep_${TSHREP}"

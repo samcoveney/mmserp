@@ -166,18 +166,18 @@ def main(args):
         # loop over all validation variables: field correlation lengthscale, num ERP obs, S2(S3) resolution
 
         # how many samples to take
-        lengthscale_samples = 30
-        numObs_samples = 10
+        lengthscale_samples = 5
+        numObs_samples = 5
 
         # what variations to use
         lengthscale_list = [10, 20, 40]
         numObs_list = [5, 10, 20, 40, 80]
         s2res_list = [10, 20, 40]
 
-        num = 32
+        num = 24
         PHI = V[:, 0:num]
         newQ = Q[0:num]
-        iterations = 5000
+        iterations = 10000
 
         RUNS = lengthscale_samples * numObs_samples * len(lengthscale_list) * len(numObs_list) * len(s2res_list)
         time_per_run = 0.0
@@ -237,7 +237,7 @@ def main(args):
                             # update average time
                             iter_time = time.time() - start_time
                             time_per_run = time_per_run + (iter_time - time_per_run) / run
-                            print("Iteration {:d} took {:1.1f} sec (average {:1.1f} sec), approx. {:2.2f} minutes left     ".format(run, iter_time, time_per_run, (RUNS - run)*time_per_run/60), end= "\r")
+                            print("Iteration {:d} / {:d} (average {:1.1f} sec) approx. {:2.2f} minutes left     ".format(run, RUNS, time_per_run, (RUNS - run)*time_per_run/60), end= "\r")
                             run = run + 1
                             start_time = time.time()
    
