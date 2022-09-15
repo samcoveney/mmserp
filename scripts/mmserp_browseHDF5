@@ -7,7 +7,7 @@ import mmserp.hdf5browser as hu
 
 if __name__ == "__main__":
     if len(sys.argv) != 2:
-        print("Error: call as ./{} <filename>".format(os.path.basename(__file__)))
+        print("Error: call as script_file_name <filename>")
     else:
         hu.show_menu(sys.argv[1])
 

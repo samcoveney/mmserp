@@ -71,8 +71,8 @@ def createGroup(filename, group, subgroups = []):
     """Create a new group after first deleting the old one."""
 
     #deleteGroup(filename, group)
+    FILE = h5py.File(filename, "r+")
     try:
-        FILE = h5py.File(filename, "r+")
         GROUP = FILE.create_group(group)
         print("[CREATE]: <{:s}> group created.".format(group))
 
@@ -82,7 +82,10 @@ def createGroup(filename, group, subgroups = []):
         print("Group exists, so not creating a new one.")
         pass
 
-    FILE.close()
+    try:
+        FILE.close()
+    except:
+        pass
 
 
 def getDataset(filename, group, dataset):

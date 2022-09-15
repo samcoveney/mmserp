@@ -126,8 +126,8 @@ def validation_plots(DF, errbars = True, minmax_erps1 = None, minmax_erps2 = Non
                 ax[TYPE, LL].set_xlabel("# ERP obs")
 
             if LL == 0:
-                LAB = "ERP(S1)" if TYPE == 0 else "ERP(S2)"
-                ax[TYPE, LL].set_ylabel(LAB + " av. RMSE")
+                LAB = "$\mathregular{ERP_{S2}}$" if TYPE == 0 else "$\mathregular{ERP_{S3}}$"
+                ax[TYPE, LL].set_ylabel(LAB + " RMSE")
 
             ax[TYPE, LL].set_yticks( [tick for tick in ax[TYPE, LL].get_yticks()] )
 
@@ -135,8 +135,8 @@ def validation_plots(DF, errbars = True, minmax_erps1 = None, minmax_erps2 = Non
 
     #plt.suptitle(title, y = 1.0)
     handles, labels = ax[TYPE,LL].get_legend_handles_labels()
-    #fig.legend(handles, labels, loc='center', title = "$\Delta$S2", ncol = len(s2res_list))
-    leg = fig.legend(handles, labels, loc='right', title = "$\Delta$S2", \
+    #fig.legend(handles, labels, loc='center', title = "S2 and S3 resolution" ncol = len(s2res_list))
+    leg = fig.legend(handles, labels, loc='right', title = "S2 and S3 resolution", \
                      bbox_to_anchor=(0.665, 1.02), ncol = 3) #, prop={'size':12})
     legend_title_left(leg)
     plt.tight_layout()

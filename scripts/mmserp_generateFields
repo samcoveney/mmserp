@@ -53,7 +53,11 @@ def main(args):
         LENGTHSCALE = 20 
         erps1, erps2, tau_out_true, APD_max_true = ERP_maps(X, Tri, Q, V, lengthscale = LENGTHSCALE, seed=seed)
         
-        plots.plot_fields(X, Tri, fields = [tau_out_true, APD_max_true], titles = ["tau_out", "APD_max"], cmap = tb_cmap).show()
+        # for some reason, this is now broken!
+        #plots.plot_fields(X, Tri, fields = [tau_out_true, APD_max_true], titles = ["tau_out", "APD_max"], cmap = "turbo").show()
+
+        plots.plot_field_and_points(X, Tri, scalars = tau_out_true, cmap = "jet", clim = None, title = "?", points = None, points_scalars = None, points_size = 25, fmt = "%.1f", alpha = 1.0, above_color = None).show()
+        plots.plot_field_and_points(X, Tri, scalars = APD_max_true, cmap = "jet", clim = None, title = "?", points = None, points_scalars = None, points_size = 25, fmt = "%.1f", alpha = 1.0, above_color = None).show()
         
         inp = input("Do you want to save these fields? Type yes/[no]: ")
         print("You entered:", inp)

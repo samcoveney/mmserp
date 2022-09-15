@@ -94,12 +94,12 @@ def main(args):
         print("CLIM:\n", CLIM)
 
         # plot the full parameter fields
-        plot_field_and_points(X, Tri, tau_out_true, points = None, points_scalars = None, title = "Tout", cmap = tb_cmap, clim = CLIM["tau_out"]).save_graphic("tauOut_true.pdf")
-        plot_field_and_points(X, Tri, APD_max_true, points = None, points_scalars = None, title = "APDmax", cmap = tb_cmap, clim = CLIM["APD_max"]).save_graphic("APDmax_true.pdf")
+        plot_field_and_points(X, Tri, tau_out_true, points = None, points_scalars = None, title = "", cmap = tb_cmap, clim = CLIM["tau_out"]).save_graphic("tauOut_true.pdf")
+        plot_field_and_points(X, Tri, APD_max_true, points = None, points_scalars = None, title = "", cmap = tb_cmap, clim = CLIM["APD_max"]).save_graphic("APDmax_true.pdf")
 
         # plot the full ERP fields
-        plot_field_and_points(X, Tri, erps1, points = None, points_scalars = None, title = "ERP(S1)", cmap = tb_cmap, clim = CLIM["ERPS1"]).save_graphic("ERPS1_true.pdf")
-        plot_field_and_points(X, Tri, erps2, points = None, points_scalars = None, title = "ERP(S2)", cmap = tb_cmap, clim = CLIM["ERPS2"]).save_graphic("ERPS2_true.pdf")
+        plot_field_and_points(X, Tri, erps1, points = None, points_scalars = None, title = "", cmap = tb_cmap, clim = CLIM["ERPS1"]).save_graphic("ERPS1_true.pdf")
+        plot_field_and_points(X, Tri, erps2, points = None, points_scalars = None, title = "", cmap = tb_cmap, clim = CLIM["ERPS2"]).save_graphic("ERPS2_true.pdf")
 
 
     # plot APD from full atrial simulation
@@ -127,7 +127,7 @@ def main(args):
                 title = "APD90" if res == "APD" else res          
 
                 data = hu.getDataset(filename, group, res)
-                plot_field_and_points(X, Tri, data, points = None, points_scalars = None, clim = clim, title = title, cmap = tb_cmap)\
+                plot_field_and_points(X, Tri, data, points = None, points_scalars = None, clim = clim, title = "", cmap = tb_cmap)\
                   .save_graphic(res + "_" + args.params + ".pdf")
         
         else:
@@ -223,35 +223,35 @@ def main(args):
         ISE_cmap = colormap(plt.get_cmap(ISE_cmap), 0.0, 0.8)
         
         # plot the full parameter fields
-        plot_field_and_points(X, Tri, f1, points = X[vert_idx], points_scalars = f1[vert_idx], title = "Tout", cmap = tb_cmap, clim = CLIM["tau_out"]).save_graphic("tauOut_pred.pdf")
-        plot_field_and_points(X, Tri, f2, points = X[vert_idx], points_scalars = f2[vert_idx], title = "APDmax", cmap = tb_cmap, clim = CLIM["APD_max"]).save_graphic("APDmax_pred.pdf")
+        plot_field_and_points(X, Tri, f1, points = X[vert_idx], points_scalars = f1[vert_idx], title = "", cmap = tb_cmap, clim = CLIM["tau_out"]).save_graphic("tauOut_pred.pdf")  # title = r"$\tau_{out}$", 
+        plot_field_and_points(X, Tri, f2, points = X[vert_idx], points_scalars = f2[vert_idx], title = "", cmap = tb_cmap, clim = CLIM["APD_max"]).save_graphic("APDmax_pred.pdf")  # title = r"$APD_{max}$"
 
         # plot the full parameter fields stdev
         CLIM_STD = np.percentile(s1, [0, 100])
-        plot_field_and_points(X, Tri, s1, points = X[vert_idx], points_scalars = s1[vert_idx], title = "Tout", cmap = ISE_cmap, clim = CLIM_STD).save_graphic("tauOut_std.pdf")
+        plot_field_and_points(X, Tri, s1, points = X[vert_idx], points_scalars = s1[vert_idx], title = "", cmap = ISE_cmap, clim = CLIM_STD).save_graphic("tauOut_std.pdf")  # title = r"$\tau_{out}$"
         CLIM_STD = np.percentile(s2, [0, 100])
-        plot_field_and_points(X, Tri, s2, points = X[vert_idx], points_scalars = s2[vert_idx], title = "APDmax", cmap = ISE_cmap, clim = CLIM_STD).save_graphic("APDmax_std.pdf")
+        plot_field_and_points(X, Tri, s2, points = X[vert_idx], points_scalars = s2[vert_idx], title = "", cmap = ISE_cmap, clim = CLIM_STD).save_graphic("APDmax_std.pdf")  # title = r"$APD_{max}$", 
 
         # plot the full ERP fields
-        plot_field_and_points(X, Tri, ef1, points = X[vert_idx], points_scalars = ef1[vert_idx], title = "ERP(S1)", cmap = tb_cmap, clim = CLIM["ERPS1"]).save_graphic("ERPS1_pred.pdf")
-        plot_field_and_points(X, Tri, ef2, points = X[vert_idx], points_scalars = ef2[vert_idx], title = "ERP(S2)", cmap = tb_cmap, clim = CLIM["ERPS2"]).save_graphic("ERPS2_pred.pdf")
+        plot_field_and_points(X, Tri, ef1, points = X[vert_idx], points_scalars = ef1[vert_idx], title = "", cmap = tb_cmap, clim = CLIM["ERPS1"]).save_graphic("ERPS1_pred.pdf")  # title = r"$\mathregular{ERP_{S2}}$",
+        plot_field_and_points(X, Tri, ef2, points = X[vert_idx], points_scalars = ef2[vert_idx], title = "", cmap = tb_cmap, clim = CLIM["ERPS2"]).save_graphic("ERPS2_pred.pdf")  # title = r"$\mathregular{ERP_{S3}}$",
 
         # plot the full ERP fields stdev
         CLIM_STD = np.percentile(es1, [0, 100])
-        plot_field_and_points(X, Tri, es1, points = X[vert_idx], points_scalars = es1[vert_idx], title = "ERP(S1)", cmap = ISE_cmap, clim = CLIM_STD).save_graphic("ERPS1_std.pdf")
+        plot_field_and_points(X, Tri, es1, points = X[vert_idx], points_scalars = es1[vert_idx], title = "", cmap = ISE_cmap, clim = CLIM_STD).save_graphic("ERPS1_std.pdf")  #  title = r"$\mathregular{ERP_{S2}}$",
         CLIM_STD = np.percentile(es2, [0, 100])
-        plot_field_and_points(X, Tri, es2, points = X[vert_idx], points_scalars = es2[vert_idx], title = "ERP(S2)", cmap = ISE_cmap, clim = CLIM_STD).save_graphic("ERPS2_std.pdf")
+        plot_field_and_points(X, Tri, es2, points = X[vert_idx], points_scalars = es2[vert_idx], title = "", cmap = ISE_cmap, clim = CLIM_STD).save_graphic("ERPS2_std.pdf")  # title = r"$\mathregular{ERP_{S3}}$",
 
         # ISE plots for ERP
         # -----------------
 
-        ISE_clim = [0.0,3]
+        ISE_clim = [0,3]
 
         erps1_ISE_LGP = np.abs(ef1 - erps1) / (es1)
-        plot_field_and_points(X, Tri, scalars = erps1_ISE_LGP, title = "ERP(S1)", cmap = ISE_cmap, clim = ISE_clim).save_graphic("ERPS1_ISE.pdf")
+        plot_field_and_points(X, Tri, scalars = erps1_ISE_LGP, points = X[vert_idx], points_scalars = erps1_ISE_LGP[vert_idx], title = "", cmap = ISE_cmap, clim = ISE_clim).save_graphic("ERPS1_ISE.pdf")  # title = "$\mathregular{ERP_{S2}}$",
 
         erps2_ISE_LGP = np.abs(ef2 - erps2) / (es2)
-        plot_field_and_points(X, Tri, scalars = erps2_ISE_LGP, title = "ERP(S2)", cmap = ISE_cmap, clim = ISE_clim).save_graphic("ERPS2_ISE.pdf")
+        plot_field_and_points(X, Tri, scalars = erps2_ISE_LGP, points = X[vert_idx], points_scalars = erps2_ISE_LGP[vert_idx], title = "", cmap = ISE_cmap, clim = ISE_clim).save_graphic("ERPS2_ISE.pdf")  #  title = "$\mathregular{ERP_{S3}}$",
 
 
 

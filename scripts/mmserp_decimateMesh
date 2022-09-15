@@ -113,7 +113,7 @@ def main(args):
             newX = hu.getDataset(args.filename, "mesh", "X")
             newTri = hu.getDataset(args.filename, "mesh", "Tri")
 
-            Q, V, gradV, centroids = eigensolver(newX, newTri, holes = args.holes, num = 2**8, layers = args.layers, calc_gradV = True, use_average_edge = True)
+            Q, V, gradV, centroids = eigensolver(newX, newTri, holes = args.holes, num = args.numeigs, layers = args.layers, calc_gradV = True, use_average_edge = True)
 
             hu.createDataset(args.filename, "mesh", "Q", Q.astype(np.float32))
             hu.createDataset(args.filename, "mesh", "V", V.astype(np.float32))

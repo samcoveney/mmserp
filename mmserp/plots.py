@@ -31,7 +31,7 @@ def plot_fields(X, Tri, fields, titles, cmap = "jet", alpha = 1.0):
         title = titles[i]
 
         # Controlling the text properties
-        sargs = dict(title = title)
+        sargs = {"title": title}
 
         # plot mesh
         plotter.add_mesh(plt_surf.copy(), scalars = scalars, clim = clim, cmap = cmap, scalar_bar_args = sargs)
