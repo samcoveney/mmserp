@@ -1,5 +1,7 @@
 # README
 
+[![DOI](https://zenodo.org/badge/445878250.svg)](https://zenodo.org/badge/latestdoi/445878250)
+
 
 ## Installation
 
